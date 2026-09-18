@@ -10,8 +10,8 @@ class MethodChannelQndUpdater extends QndUpdaterPlatform {
   final methodChannel = const MethodChannel('qnd_updater');
 
   @override
-  Future<String?> getPlatformVersion() async {
-    final version = await methodChannel.invokeMethod<String>('getPlatformVersion');
+  Future<String?> getAppVersion() async {
+    final version = await methodChannel.invokeMethod<String>('getAppVersion');
     return version;
   }
 }

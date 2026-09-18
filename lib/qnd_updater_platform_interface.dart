@@ -23,7 +23,7 @@ abstract class QndUpdaterPlatform extends PlatformInterface {
     _instance = instance;
   }
 
-  Future<String?> getPlatformVersion() {
-    throw UnimplementedError('platformVersion() has not been implemented.');
+  Future<String?> getAppVersion() {
+    throw UnimplementedError('getAppVersion() has not been implemented.');
   }
 }
