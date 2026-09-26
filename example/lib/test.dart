@@ -1,10 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:qnd_updater/qnd_updater.dart';
 
-const String kDemoBuildTag = 'build-002';
+const String kDemoBuildTag = 'build-001';
 
 const List<String> kDemoChangelog = [
   'Initial release',
@@ -98,16 +97,47 @@ class _UpdateTestScreenState extends State<UpdateTestScreen> {
     });
 
     try {
-      if (Platform.isAndroid) {
-        await _androidUpdate();
-      } else if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
-        await _desktopUpdate();
-      } else {
+      final platformKey = _platformKey();
+
+      final result = await _service.downloadLatest(
+        platformKey: platformKey,
+        onProgress: (done, total) {
+          if (!mounted) return;
+          setState(() {
+            _progress = total > 0 ? done / total : 0;
+            final doneMb = (done / 1024 / 1024).toStringAsFixed(1);
+            final totalMb = (total / 1024 / 1024).toStringAsFixed(1);
+            _progressLabel = '$doneMb / $totalMb MB';
+          });
+        },
+      );
+
+      if (result == null) {
         if (!mounted) return;
         setState(() {
-          _status = 'platform not supported';
+          _status = 'no asset for platform "$platformKey"';
           _busy = false;
         });
+        return;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _status = 'applying ${result.version}...';
+        _progressLabel = result.stagingDir.path;
+      });
+
+      await _updater.applyUpdate(result.stagingDir.path);
+
+      if (Platform.isAndroid) {
+        if (!mounted) return;
+        setState(() {
+          _status = 'system installer opened';
+          _busy = false;
+        });
+      } else {
+        await Future.delayed(const Duration(milliseconds: 500));
+        exit(0);
       }
     } catch (e) {
       if (!mounted) return;
@@ -123,89 +153,6 @@ class _UpdateTestScreenState extends State<UpdateTestScreen> {
     if (Platform.isMacOS) return 'macos';
     if (Platform.isLinux) return 'linux';
     return 'android';
-  }
-
-  Future<void> _desktopUpdate() async {
-    final platformKey = _platformKey();
-
-    final tmp = await getTemporaryDirectory();
-    final staging = Directory('${tmp.path}/qnd_staging');
-
-    final result = await _service.downloadUpdate(
-      platformKey: platformKey,
-      stagingDir: staging,
-      onProgress: (done, total) {
-        if (!mounted) return;
-        setState(() {
-          _progress = total > 0 ? done / total : 0;
-          final doneMb = (done / 1024 / 1024).toStringAsFixed(1);
-          final totalMb = (total / 1024 / 1024).toStringAsFixed(1);
-          _progressLabel = '$doneMb / $totalMb MB';
-        });
-      },
-    );
-
-    if (result == null) {
-      if (!mounted) return;
-      setState(() {
-        _status = 'no asset for platform "$platformKey"';
-        _busy = false;
-      });
-      return;
-    }
-
-    if (!mounted) return;
-    setState(() {
-      _status = 'applying ${result.version}...';
-      _progressLabel = result.stagingDir.path;
-    });
-
-    await _updater.applyUpdate(result.stagingDir.path);
-
-    await Future.delayed(const Duration(milliseconds: 500));
-    exit(0);
-  }
-
-  Future<void> _androidUpdate() async {
-    final tmp = await getTemporaryDirectory();
-    final staging = Directory('${tmp.path}/qnd_staging');
-
-    final result = await _service.downloadUpdate(
-      platformKey: 'android',
-      stagingDir: staging,
-      onProgress: (done, total) {
-        if (!mounted) return;
-        setState(() {
-          _progress = total > 0 ? done / total : 0;
-          final doneMb = (done / 1024 / 1024).toStringAsFixed(1);
-          final totalMb = (total / 1024 / 1024).toStringAsFixed(1);
-          _progressLabel = '$doneMb / $totalMb MB';
-        });
-      },
-    );
-
-    if (result == null) {
-      if (!mounted) return;
-      setState(() {
-        _status = 'no android asset in release';
-        _busy = false;
-      });
-      return;
-    }
-
-    if (!mounted) return;
-    setState(() {
-      _status = 'installing ${result.version}...';
-      _progressLabel = result.stagingDir.path;
-    });
-
-    await _updater.applyUpdate(result.stagingDir.path);
-
-    if (!mounted) return;
-    setState(() {
-      _status = 'system installer opened';
-      _busy = false;
-    });
   }
 
   @override

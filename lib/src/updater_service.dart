@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 
 class GithubRelease {
   final String tag;
@@ -159,6 +160,19 @@ class UpdaterService {
       tag: release.tag,
       stagingDir: stagingDir,
       totalBytes: done,
+    );
+  }
+
+  Future<UpdateResult?> downloadLatest({
+    required String platformKey,
+    void Function(int downloaded, int total)? onProgress,
+  }) async {
+    final tmp = await getTemporaryDirectory();
+    final staging = Directory('${tmp.path}/qnd_staging');
+    return downloadUpdate(
+      platformKey: platformKey,
+      stagingDir: staging,
+      onProgress: onProgress,
     );
   }
 }

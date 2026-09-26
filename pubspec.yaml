@@ -1,5 +1,5 @@
 name: qnd_updater
-description: "A new Flutter plugin project."
+description: "Flutter plugin for incremental app updates via GitHub Releases."
 version: 0.0.1
 homepage:
 
@@ -10,11 +10,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  archive: ^4.3.0
   crypto: ^3.0.7
   http: ^1.6.0
   path: ^1.9.1
-  plugin_platform_interface: ^2.0.2
-  archive: ^4.3.0
+  path_provider: ^2.1.6
+  plugin_platform_interface: ^2.1.8
 
 dev_dependencies:
   flutter_test:
@@ -26,8 +27,6 @@ flutter:
     platforms:
       android:
         package: com.example.qnd_updater
-        pluginClass: QndUpdaterPlugin
-      ios:
         pluginClass: QndUpdaterPlugin
       macos:
         pluginClass: QndUpdaterPlugin
