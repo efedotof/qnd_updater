@@ -1,0 +1,393 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:qnd_updater/qnd_updater.dart';
+
+const String kDemoBuildTag = 'build-001';
+
+const List<String> kDemoChangelog = [
+  'Initial release',
+];
+
+class UpdateTestScreen extends StatefulWidget {
+  final String owner;
+  final String repo;
+  final String? githubToken;
+
+  const UpdateTestScreen({
+    super.key,
+    required this.owner,
+    required this.repo,
+    this.githubToken,
+  });
+
+  @override
+  State<UpdateTestScreen> createState() => _UpdateTestScreenState();
+}
+
+class _UpdateTestScreenState extends State<UpdateTestScreen> {
+  final QndUpdater _updater = QndUpdater();
+  late final UpdaterService _service = UpdaterService(
+    owner: widget.owner,
+    repo: widget.repo,
+    githubToken: widget.githubToken,
+  );
+
+  String _status = 'idle';
+  String _currentVersion = '...';
+  String _remoteVersion = '...';
+  UpdateStatus? _lastStatus;
+  double _progress = 0;
+  String _progressLabel = '';
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentVersion();
+  }
+
+  Future<void> _loadCurrentVersion() async {
+    final v = await _updater.getAppVersion();
+    debugPrint(
+      'qnd_updater: current version = $v, build tag = $kDemoBuildTag',
+    );
+    if (!mounted) return;
+    setState(() => _currentVersion = v ?? 'unknown');
+  }
+
+  Future<void> _check() async {
+    setState(() {
+      _busy = true;
+      _status = 'checking...';
+      _progress = 0;
+      _progressLabel = '';
+      _lastStatus = null;
+    });
+
+    final status = await _updater.checkForUpdate(
+      githubToken: widget.githubToken ?? '',
+      owner: widget.owner,
+      repo: widget.repo,
+    );
+
+    String remote = '?';
+    try {
+      final release = await _service.fetchLatestRelease();
+      remote = release?.tag ?? '?';
+    } catch (_) {}
+
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _lastStatus = status;
+      _remoteVersion = remote;
+      _status = switch (status) {
+        UpdateStatus.upToDate => 'already up to date',
+        UpdateStatus.updateAvailable => 'update available',
+        UpdateStatus.error => 'error',
+      };
+    });
+  }
+
+  Future<void> _downloadAndApply() async {
+    setState(() {
+      _busy = true;
+      _status = 'downloading...';
+      _progress = 0;
+      _progressLabel = '';
+    });
+
+    try {
+      if (Platform.isWindows || Platform.isMacOS) {
+        await _desktopUpdate();
+      } else if (Platform.isAndroid) {
+        await _androidUpdate();
+      } else {
+        if (!mounted) return;
+        setState(() {
+          _status = 'platform not supported';
+          _busy = false;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _status = 'failed: $e';
+        _busy = false;
+      });
+    }
+  }
+
+  Future<void> _desktopUpdate() async {
+    final platformKey = Platform.isWindows ? 'windows' : 'macos';
+    final appDir = File(Platform.resolvedExecutable).parent;
+
+    final plan = await _service.planUpdate(
+      appDir: appDir,
+      platformKey: platformKey,
+    );
+
+    if (plan == null) {
+      if (!mounted) return;
+      setState(() {
+        _status = 'no manifest in release';
+        _busy = false;
+      });
+      return;
+    }
+
+    if (plan.changed.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _status = 'all files up to date';
+        _busy = false;
+      });
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _status = 'downloading ${plan.changed.length} files';
+    });
+
+    final release = await _service.fetchLatestRelease();
+    if (release == null) {
+      throw StateError('release not found');
+    }
+
+    final tmp = await getTemporaryDirectory();
+    final staging = Directory('${tmp.path}/qnd_staging');
+
+    await _service.downloadChanged(
+      plan: plan,
+      release: release,
+      stagingDir: staging,
+      onProgress: (done, total) {
+        if (!mounted) return;
+        setState(() {
+          _progress = total > 0 ? done / total : 0;
+          final doneMb = (done / 1024 / 1024).toStringAsFixed(1);
+          final totalMb = (total / 1024 / 1024).toStringAsFixed(1);
+          _progressLabel = '$doneMb / $totalMb MB';
+        });
+      },
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _status = 'applying...';
+      _progressLabel = staging.path;
+    });
+
+    await _updater.applyUpdate(staging.path);
+
+    await Future.delayed(const Duration(milliseconds: 500));
+    exit(0);
+  }
+
+  Future<void> _androidUpdate() async {
+    final release = await _service.fetchLatestRelease();
+    if (release == null) {
+      throw StateError('release not found');
+    }
+
+    final apkName = 'qnd_updater-${release.tag}.apk';
+    final apkAsset = release.assets[apkName];
+
+    if (apkAsset == null) {
+      final available = release.assets.keys.join(', ');
+      if (!mounted) return;
+      setState(() {
+        _status = 'APK "$apkName" not found. Available: $available';
+        _busy = false;
+      });
+      return;
+    }
+
+    final tmp = await getTemporaryDirectory();
+    final apkFile = File('${tmp.path}/update.apk');
+    if (await apkFile.exists()) {
+      await apkFile.delete();
+    }
+
+    if (!mounted) return;
+    setState(() => _status = 'downloading apk...');
+
+    final client = HttpClient();
+    try {
+      final req = await client.getUrl(Uri.parse(apkAsset.browserDownloadUrl));
+      final resp = await req.close();
+
+      if (resp.statusCode != 200) {
+        throw StateError('HTTP ${resp.statusCode}');
+      }
+
+      final total = resp.contentLength > 0 ? resp.contentLength : apkAsset.size;
+      int done = 0;
+
+      final sink = apkFile.openWrite();
+      await for (final chunk in resp) {
+        sink.add(chunk);
+        done += chunk.length;
+        if (!mounted) continue;
+        setState(() {
+          _progress = total > 0 ? done / total : 0;
+          final doneMb = (done / 1024 / 1024).toStringAsFixed(1);
+          final totalMb = (total / 1024 / 1024).toStringAsFixed(1);
+          _progressLabel = '$doneMb / $totalMb MB';
+        });
+      }
+      await sink.close();
+    } finally {
+      client.close();
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _status = 'installing...';
+      _progressLabel = apkFile.path;
+    });
+
+    await _updater.applyUpdate(apkFile.path);
+
+    if (!mounted) return;
+    setState(() {
+      _status = 'system installer opened';
+      _busy = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canApply = _lastStatus == UpdateStatus.updateAvailable && !_busy;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('qnd_updater test'),
+        actions: [
+          IconButton(
+            tooltip: 'Reload version',
+            icon: const Icon(Icons.refresh),
+            onPressed: _busy ? null : _loadCurrentVersion,
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: ListView(
+            children: [
+              _buildDemoBanner(context),
+              const SizedBox(height: 20),
+              _row('Repo', '${widget.owner}/${widget.repo}'),
+              _row('Platform', Platform.operatingSystem),
+              _row('Current version', _currentVersion),
+              _row('Remote version', _remoteVersion),
+              _row('Status', _status),
+              const SizedBox(height: 20),
+              if (_progress > 0) _buildProgress(context),
+              FilledButton.icon(
+                onPressed: _busy ? null : _check,
+                icon: const Icon(Icons.search),
+                label: const Text('1. Check for update'),
+              ),
+              const SizedBox(height: 8),
+              FilledButton.tonalIcon(
+                onPressed: canApply ? _downloadAndApply : null,
+                icon: const Icon(Icons.download),
+                label: const Text('2. Download and apply'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDemoBanner(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.deepPurple.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.deepPurple, width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'BUILD TAG',
+            style: TextStyle(
+              fontSize: 12,
+              letterSpacing: 1.2,
+              color: Colors.deepPurple.shade700,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            kDemoBuildTag,
+            style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w900,
+              color: Colors.deepPurple.shade900,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Changelog:',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.deepPurple.shade700,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          ...kDemoChangelog.map(
+            (line) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Text('• $line'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProgress(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        LinearProgressIndicator(value: _progress),
+        const SizedBox(height: 4),
+        Text(
+          _progressLabel,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  Widget _row(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 140,
+            child: Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          Expanded(child: SelectableText(value)),
+        ],
+      ),
+    );
+  }
+}
