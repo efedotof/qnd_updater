@@ -26,7 +26,7 @@ class _HomePageState extends State<HomePage> {
 
     final updater = QndUpdater();
     final status = await updater.checkForUpdate(
-      githubToken: '...', 
+      githubToken: '', 
       owner: 'efedotof',
       repo: 'qnd_updater',
     );
