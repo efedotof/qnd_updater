@@ -191,7 +191,6 @@ jobs:
           Terminal=false
           EOF
 
-          # Иконка: пробуем взять из flutter assets, иначе рисуем заглушку
           if [ -f "$BUNDLE/data/flutter_assets/assets/icon.png" ]; then
             cp "$BUNDLE/data/flutter_assets/assets/icon.png" "$APPDIR/${APP_NAME}.png"
           else
@@ -218,7 +217,7 @@ jobs:
           BUNDLE=example/build/linux/x64/release/bundle
           VERSION=$(grep '^version:' example/pubspec.yaml \
             | sed 's/version: //' | sed 's/+.*//' | xargs)
-          PKG=/tmp/qnd_updater_${VERSION}_amd64
+          PKG=/tmp/qnd-updater_${VERSION}_amd64
           rm -rf "$PKG"
           mkdir -p "$PKG/DEBIAN" "$PKG/usr/lib/qnd_updater" "$PKG/usr/bin" \
                    "$PKG/usr/share/applications" \
@@ -232,27 +231,27 @@ jobs:
           EOF
           chmod +x "$PKG/usr/bin/qnd_updater"
 
-          cat > "$PKG/usr/share/applications/qnd_updater.desktop" <<EOF
+          cat > "$PKG/usr/share/applications/qnd-updater.desktop" <<EOF
           [Desktop Entry]
           Type=Application
           Name=Qnd Updater
           Exec=qnd_updater
-          Icon=qnd_updater
+          Icon=qnd-updater
           Categories=Utility;
           Terminal=false
           EOF
 
           if [ -f "$BUNDLE/data/flutter_assets/assets/icon.png" ]; then
             cp "$BUNDLE/data/flutter_assets/assets/icon.png" \
-               "$PKG/usr/share/icons/hicolor/256x256/apps/qnd_updater.png"
+               "$PKG/usr/share/icons/hicolor/256x256/apps/qnd-updater.png"
           else
             convert -size 256x256 xc:'#673AB7' \
-              "$PKG/usr/share/icons/hicolor/256x256/apps/qnd_updater.png" || \
-              printf '' > "$PKG/usr/share/icons/hicolor/256x256/apps/qnd_updater.png"
+              "$PKG/usr/share/icons/hicolor/256x256/apps/qnd-updater.png" || \
+              printf '' > "$PKG/usr/share/icons/hicolor/256x256/apps/qnd-updater.png"
           fi
 
           cat > "$PKG/DEBIAN/control" <<EOF
-          Package: qnd_updater
+          Package: qnd-updater
           Version: ${VERSION}
           Architecture: amd64
           Maintainer: efedotof <efedotof@users.noreply.github.com>
@@ -264,7 +263,7 @@ jobs:
           EOF
 
           dpkg-deb --build "$PKG" \
-            "$GITHUB_WORKSPACE/dist/qnd_updater-${VERSION}-linux.deb"
+            "$GITHUB_WORKSPACE/dist/qnd-updater-${VERSION}-linux.deb"
 
           ls -la "$GITHUB_WORKSPACE/dist/"
 
