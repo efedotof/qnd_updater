@@ -8,9 +8,9 @@ environment:
   flutter: '>=3.3.0'
 
 dependencies:
-  crypto: ^3.0.7
   flutter:
-    sdk: flutter
+      sdk: flutter
+  crypto: ^3.0.7
   http: ^1.6.0
   path: ^1.9.1
   path_provider: ^2.1.6
