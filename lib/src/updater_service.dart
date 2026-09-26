@@ -56,7 +56,7 @@ class UpdaterService {
 
   Map<String, String> get _headers => {
         'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2026-03-28',
+        'X-GitHub-Api-Version': '2026-03-10',
         if (githubToken != null && githubToken!.isNotEmpty)
           'Authorization': 'Bearer $githubToken',
       };
@@ -125,7 +125,8 @@ class UpdaterService {
     }
 
     final cl = resp.contentLength;
-    final total = (cl != null && cl > 0) ? cl : asset.size;
+    final int total = (cl != null && cl > 0) ? cl : asset.size;
+
     int done = 0;
     final sink = zipFile.openWrite();
     await for (final chunk in resp.stream) {
@@ -135,7 +136,6 @@ class UpdaterService {
     }
     await sink.close();
 
-
     final input = InputFileStream(zipFile.path);
     final archive = ZipDecoder().decodeStream(input);
     for (final file in archive) {
@@ -143,9 +143,7 @@ class UpdaterService {
       if (file.isFile) {
         final out = File(outPath);
         await out.parent.create(recursive: true);
-        final outStream = out.openWrite();
-        await outStream.addStream(file.content as Stream<List<int>>);
-        await outStream.close();
+        await out.writeAsBytes(file.content as List<int>, flush: true);
       } else {
         await Directory(outPath).create(recursive: true);
       }
