@@ -136,20 +136,32 @@ class UpdaterService {
       onProgress?.call(done, total);
     }
     await sink.close();
-
-    final input = InputFileStream(zipFile.path);
-    final archive = ZipDecoder().decodeStream(input);
-    for (final file in archive) {
-      final outPath = '${stagingDir.path}/${file.name}';
-      if (file.isFile) {
-        final out = File(outPath);
-        await out.parent.create(recursive: true);
-        await out.writeAsBytes(file.content as List<int>, flush: true);
-      } else {
-        await Directory(outPath).create(recursive: true);
+    if (Platform.isMacOS) {
+      final ditto = await Process.run(
+        '/usr/bin/ditto',
+        ['-x', '-k', zipFile.path, stagingDir.path],
+      );
+      if (ditto.exitCode != 0) {
+        throw StateError(
+          'ditto failed (${ditto.exitCode}): ${ditto.stderr}',
+        );
       }
+      await _verifyStagedApp(stagingDir);
+    } else {
+      final input = InputFileStream(zipFile.path);
+      final archive = ZipDecoder().decodeStream(input);
+      for (final file in archive) {
+        final outPath = '${stagingDir.path}/${file.name}';
+        if (file.isFile) {
+          final out = File(outPath);
+          await out.parent.create(recursive: true);
+          await out.writeAsBytes(file.content as List<int>, flush: true);
+        } else {
+          await Directory(outPath).create(recursive: true);
+        }
+      }
+      await input.close();
     }
-    await input.close();
     await zipFile.delete();
 
     final version =
@@ -161,6 +173,66 @@ class UpdaterService {
       stagingDir: stagingDir,
       totalBytes: done,
     );
+  }
+
+  Future<void> _verifyStagedApp(Directory stagingDir) async {
+    final appDirs = stagingDir
+        .listSync()
+        .whereType<Directory>()
+        .where((d) => d.path.endsWith('.app'))
+        .toList();
+
+    if (appDirs.isEmpty) {
+      throw StateError('В staging нет ни одного .app: ${stagingDir.path}');
+    }
+
+    for (final app in appDirs) {
+      final appFramework =
+          Link('${app.path}/Contents/Frameworks/App.framework/App');
+      final appResources =
+          Link('${app.path}/Contents/Frameworks/App.framework/Resources');
+
+      if (!appFramework.existsSync()) {
+        throw StateError(
+          'App.framework/App не симлинк — распаковка сломала бандл: '
+          '$appFramework',
+        );
+      }
+      if (!appResources.existsSync()) {
+        throw StateError(
+          'App.framework/Resources не симлинк: $appResources',
+        );
+      }
+
+      final flutterAssets = Directory(
+        '${app.path}/Contents/Frameworks/App.framework/Versions/A/Resources/flutter_assets',
+      );
+      if (!flutterAssets.existsSync()) {
+        throw StateError('flutter_assets не найден: $flutterAssets');
+      }
+
+      final icudtl = File(
+        '${app.path}/Contents/Frameworks/FlutterMacOS.framework/Versions/A/Resources/icudtl.dat',
+      );
+      if (!icudtl.existsSync()) {
+        throw StateError('icudtl.dat не найден: $icudtl');
+      }
+
+      final macosDir = Directory('${app.path}/Contents/MacOS');
+      if (!macosDir.existsSync()) {
+        throw StateError('Contents/MacOS отсутствует: $macosDir');
+      }
+      for (final entity in macosDir.listSync()) {
+        if (entity is File) {
+          final mode = entity.statSync().mode;
+          if ((mode & 0x40) == 0) {
+            throw StateError(
+              'Бинарник без +x: ${entity.path} (mode=${mode.toRadixString(8)})',
+            );
+          }
+        }
+      }
+    }
   }
 
   Future<UpdateResult?> downloadLatest({
