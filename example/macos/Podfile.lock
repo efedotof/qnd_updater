@@ -1,22 +1,29 @@
 PODS:
   - FlutterMacOS (1.0.0)
+  - path_provider_foundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
   - qnd_updater (0.0.1):
     - FlutterMacOS
 
 DEPENDENCIES:
   - FlutterMacOS (from `Flutter/ephemeral`)
+  - path_provider_foundation (from `Flutter/ephemeral/.symlinks/plugins/path_provider_foundation/darwin`)
   - qnd_updater (from `Flutter/ephemeral/.symlinks/plugins/qnd_updater/macos`)
 
 EXTERNAL SOURCES:
   FlutterMacOS:
     :path: Flutter/ephemeral
+  path_provider_foundation:
+    :path: Flutter/ephemeral/.symlinks/plugins/path_provider_foundation/darwin
   qnd_updater:
     :path: Flutter/ephemeral/.symlinks/plugins/qnd_updater/macos
 
 SPEC CHECKSUMS:
   FlutterMacOS: 8f6f14fa908a6fb3fba0cd85dbd81ec4b251fb24
-  qnd_updater: 2b6cb91afb47ebf00304d1c6d95f1b0d644851e2
+  path_provider_foundation: 2b6b4c569c0fb62ec74538f866245ac84301af46
+  qnd_updater: 81a701094b9469d686675cda4e36085d195af938
 
-PODFILE CHECKSUM: 236401fc2c932af29a9fcf0e97baeeb2d750d367
+PODFILE CHECKSUM: 9ebaf0ce3d369aaa26a9ea0e159195ed94724cf3
 
 COCOAPODS: 1.16.2

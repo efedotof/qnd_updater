@@ -13,10 +13,10 @@ class MethodChannelQndUpdater extends QndUpdaterPlatform {
   }
 
   @override
-  Future<bool> applyUpdate(String stagingDir) async {
+  Future<bool> applyUpdate(String stagingOrApkPath) async {
     final ok = await methodChannel.invokeMethod<bool>(
       'applyUpdate',
-      <String, dynamic>{'stagingDir': stagingDir},
+      <String, dynamic>{'stagingDir': stagingOrApkPath},
     );
     return ok ?? false;
   }

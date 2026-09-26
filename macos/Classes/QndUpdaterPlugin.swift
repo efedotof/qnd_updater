@@ -34,39 +34,66 @@ public class QndUpdaterPlugin: NSObject, FlutterPlugin {
 
   private func applyUpdate(stagingDir: String, result: @escaping FlutterResult) {
     let bundlePath = Bundle.main.bundlePath
-    let bundleName = (bundlePath as NSString).lastPathComponent
     let pid = ProcessInfo.processInfo.processIdentifier
-
 
     let script = """
     #!/bin/bash
-    set -e
+    LOG=/tmp/qnd_updater_apply_\(pid).log
+    exec >> "$LOG" 2>&1
+    echo "=== $(date) apply_update pid=$$ ==="
+    set -x
+
     PID=\(pid)
     STAGING="\(stagingDir)"
     BUNDLE="\(bundlePath)"
-    APP_NAME="\(bundleName)"
 
-    # ждём выхода процесса
-    while kill -0 "$PID" 2>/dev/null; do sleep 0.4; done
+    echo "=== wait for PID $PID ==="
+    for i in $(seq 1 200); do
+      if ! kill -0 "$PID" 2>/dev/null; then break; fi
+      sleep 0.3
+    done
+    sleep 1
 
-    SRC_APP="$STAGING/$APP_NAME"
+    SRC_APP=""
+    for candidate in "$STAGING"/*.app; do
+      if [ -d "$candidate/Contents" ]; then
+        SRC_APP="$candidate"
+        break
+      fi
+    done
 
-    if [ -d "$SRC_APP/Contents" ]; then
-      # ZIP содержит <app_name>.app/Contents — копируем содержимое бандла
-      /usr/bin/ditto "$SRC_APP/Contents" "$BUNDLE/Contents"
-    elif [ -d "$STAGING/Contents" ]; then
-      # ZIP содержит Contents прямо в корне
-      /usr/bin/ditto "$STAGING/Contents" "$BUNDLE/Contents"
-    else
-      echo "update archive layout not recognized" >&2
+    if [ -z "$SRC_APP" ] || [ ! -d "$SRC_APP/Contents" ]; then
+      echo "no .app in staging"
+      ls -la "$STAGING"
       exit 1
     fi
 
-    # снимаем quarantine
+    echo "=== verify staging app signature ==="
+    /usr/bin/codesign --verify --verbose=2 "$SRC_APP" 2>&1 | sed "s/^/  sig: /"
+
+    echo "=== copy new bundle ==="
+    NEW_BUNDLE="$BUNDLE.new_$$"
+    /bin/rm -rf "$NEW_BUNDLE"
+    /usr/bin/ditto --rsrc --extattr "$SRC_APP" "$NEW_BUNDLE"
+
+    echo "=== remove quarantine ==="
+    /usr/bin/xattr -dr com.apple.quarantine "$NEW_BUNDLE" 2>/dev/null || true
+
+    echo "=== verify new bundle signature ==="
+    /usr/bin/codesign --verify --verbose=4 "$NEW_BUNDLE" 2>&1 | sed "s/^/  verify: /"
+
+    echo "=== dump entitlements ==="
+    /usr/bin/codesign -d --entitlements - "$NEW_BUNDLE" 2>&1 | sed "s/^/  ent: /"
+
+    echo "=== swap ==="
+    /bin/mv "$BUNDLE" "$BUNDLE.old_$$"
+    /bin/mv "$NEW_BUNDLE" "$BUNDLE"
     /usr/bin/xattr -dr com.apple.quarantine "$BUNDLE" 2>/dev/null || true
 
-    # перезапуск
+    echo "=== relaunch ==="
     /usr/bin/open "$BUNDLE"
+    sleep 2
+    /bin/rm -rf "$BUNDLE.old_$$"
     /bin/rm -- "$0"
     """
 

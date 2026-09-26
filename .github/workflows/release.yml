@@ -344,19 +344,65 @@ jobs:
           done
           lipo -info "$U/Contents/MacOS/$MAIN"
 
-      - name: Package zip (auto-updater)
+      - name: Write entitlements file
+        run: |
+          cat > /tmp/release.entitlements <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.security.cs.allow-jit</key>
+              <true/>
+              <key>com.apple.security.network.client</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+          cat /tmp/release.entitlements
+
+      - name: Remove old signatures
+        run: |
+          find /tmp/universal/Runner.app -type d -name "_CodeSignature" -prune -exec rm -rf {} + 2>/dev/null || true
+
+      - name: Sign app with release entitlements
+        run: |
+          codesign --force --deep --sign - \
+            --entitlements /tmp/release.entitlements \
+            /tmp/universal/Runner.app
+          echo "=== verify ==="
+          codesign --verify --verbose=2 /tmp/universal/Runner.app
+          echo "=== entitlements ==="
+          codesign -d --entitlements - /tmp/universal/Runner.app
+
+      - name: Package zip with ditto (preserves xattrs)
         run: |
           mkdir -p dist
           cd /tmp/universal
-          zip -qry "$GITHUB_WORKSPACE/dist/qnd_updater-${{ github.ref_name }}-macos.zip" Runner.app
-          ls -la "$GITHUB_WORKSPACE/dist/"
+          ditto -c -k --rsrc --extattr --keepParent Runner.app \
+            "$GITHUB_WORKSPACE/dist/qnd_updater-${{ github.ref_name }}-macos.zip"
+          cd "$GITHUB_WORKSPACE"
+          ls -la dist/
+
+      - name: Verify zip contents
+        run: |
+          set -e
+          rm -rf /tmp/verify_zip
+          mkdir -p /tmp/verify_zip
+          cd /tmp/verify_zip
+          unzip -q "$GITHUB_WORKSPACE/dist/qnd_updater-${{ github.ref_name }}-macos.zip"
+          echo "=== extracted structure ==="
+          ls -la
+          echo "=== verify signature after unpack ==="
+          codesign --verify --verbose=2 Runner.app
+          echo "=== entitlements after unpack ==="
+          codesign -d --entitlements - Runner.app
 
       - name: Package dmg (installer)
         run: |
           set -e
           rm -rf /tmp/dmg
           mkdir -p /tmp/dmg
-          cp -R /tmp/universal/Runner.app /tmp/dmg/qnd_updater_example.app
+          /usr/bin/ditto /tmp/universal/Runner.app /tmp/dmg/qnd_updater_example.app
           ln -s /Applications /tmp/dmg/Applications
 
           hdiutil create \
@@ -393,7 +439,7 @@ jobs:
           find dist -type f \( -name '*.zip' -o -name '*.apk' -o -name '*.exe' -o -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \) -exec ls -la {} \;
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprop/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
