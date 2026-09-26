@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:qnd_updater/qnd_updater.dart';
 
-const String kDemoBuildTag = 'build-001';
+const String kDemoBuildTag = 'build-002';
 const List<String> kDemoChangelog = ['Initial release'];
 
 class UpdateTestScreen extends StatefulWidget {
