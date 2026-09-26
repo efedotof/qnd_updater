@@ -52,7 +52,11 @@ jobs:
           GRADLE_BIN="$TMP/gradle-${LATEST}/bin/gradle"
 
           GEN=$(mktemp -d)
-          ( cd "$GEN" && "$GRADLE_BIN" wrapper --gradle-version "$LATEST" --distribution-type bin )
+          (
+            cd "$GEN"
+            echo "rootProject.name = 'wrapper-gen'" > settings.gradle
+            "$GRADLE_BIN" wrapper --gradle-version "$LATEST" --distribution-type bin
+          )
 
           cp "$GEN/gradlew" "$GEN/gradlew.bat" .
           mkdir -p gradle/wrapper
