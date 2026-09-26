@@ -33,3 +33,5 @@ flutter:
         pluginClass: QndUpdaterPlugin
       windows:
         pluginClass: QndUpdaterPluginCApi
+      linux:
+        pluginClass: QndUpdaterPlugin
