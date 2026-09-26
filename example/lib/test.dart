@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:qnd_updater/qnd_updater.dart';
 
-const String kDemoBuildTag = 'build-003';
+const String kDemoBuildTag = 'build-001';
 
 const List<String> kDemoChangelog = [
   'Initial release',
