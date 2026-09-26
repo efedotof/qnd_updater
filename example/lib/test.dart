@@ -4,8 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:qnd_updater/qnd_updater.dart';
 
-const String kDemoBuildTag = 'build-002';
-const List<String> kDemoChangelog = ['Initial release'];
+const String kDemoBuildTag = 'build-001';
+
+const List<String> kDemoChangelog = [
+  'Initial release',
+];
 
 class UpdateTestScreen extends StatefulWidget {
   final String owner;
@@ -95,56 +98,17 @@ class _UpdateTestScreenState extends State<UpdateTestScreen> {
     });
 
     try {
-      final platformKey = Platform.isWindows
-          ? 'windows'
-          : Platform.isMacOS
-              ? 'macos'
-              : 'android';
-
-      final tmp = await getTemporaryDirectory();
-      final staging = Directory('${tmp.path}/qnd_staging');
-
-      final result = await _service.downloadUpdate(
-        platformKey: platformKey,
-        stagingDir: staging,
-        onProgress: (done, total) {
-          if (!mounted) return;
-          setState(() {
-            _progress = total > 0 ? done / total : 0;
-            final d = (done / 1024 / 1024).toStringAsFixed(1);
-            final t = (total / 1024 / 1024).toStringAsFixed(1);
-            _progressLabel = '$d / $t MB';
-          });
-        },
-      );
-
-      if (result == null) {
+      if (Platform.isAndroid) {
+        await _androidUpdate();
+      } else if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+        await _desktopUpdate();
+      } else {
         if (!mounted) return;
         setState(() {
-          _status = 'no asset for platform "$platformKey"';
+          _status = 'platform not supported';
           _busy = false;
         });
-        return;
       }
-
-      if (!mounted) return;
-      setState(() {
-        _status = 'applying ${result.version}...';
-        _progressLabel = result.stagingDir.path;
-      });
-
-      await _updater.applyUpdate(result.stagingDir.path);
-
-      if (Platform.isWindows || Platform.isMacOS) {
-        await Future.delayed(const Duration(milliseconds: 500));
-        exit(0);
-      }
-
-      if (!mounted) return;
-      setState(() {
-        _status = 'installer opened';
-        _busy = false;
-      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -152,6 +116,96 @@ class _UpdateTestScreenState extends State<UpdateTestScreen> {
         _busy = false;
       });
     }
+  }
+
+  String _platformKey() {
+    if (Platform.isWindows) return 'windows';
+    if (Platform.isMacOS) return 'macos';
+    if (Platform.isLinux) return 'linux';
+    return 'android';
+  }
+
+  Future<void> _desktopUpdate() async {
+    final platformKey = _platformKey();
+
+    final tmp = await getTemporaryDirectory();
+    final staging = Directory('${tmp.path}/qnd_staging');
+
+    final result = await _service.downloadUpdate(
+      platformKey: platformKey,
+      stagingDir: staging,
+      onProgress: (done, total) {
+        if (!mounted) return;
+        setState(() {
+          _progress = total > 0 ? done / total : 0;
+          final doneMb = (done / 1024 / 1024).toStringAsFixed(1);
+          final totalMb = (total / 1024 / 1024).toStringAsFixed(1);
+          _progressLabel = '$doneMb / $totalMb MB';
+        });
+      },
+    );
+
+    if (result == null) {
+      if (!mounted) return;
+      setState(() {
+        _status = 'no asset for platform "$platformKey"';
+        _busy = false;
+      });
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _status = 'applying ${result.version}...';
+      _progressLabel = result.stagingDir.path;
+    });
+
+    await _updater.applyUpdate(result.stagingDir.path);
+
+    await Future.delayed(const Duration(milliseconds: 500));
+    exit(0);
+  }
+
+  Future<void> _androidUpdate() async {
+    final tmp = await getTemporaryDirectory();
+    final staging = Directory('${tmp.path}/qnd_staging');
+
+    final result = await _service.downloadUpdate(
+      platformKey: 'android',
+      stagingDir: staging,
+      onProgress: (done, total) {
+        if (!mounted) return;
+        setState(() {
+          _progress = total > 0 ? done / total : 0;
+          final doneMb = (done / 1024 / 1024).toStringAsFixed(1);
+          final totalMb = (total / 1024 / 1024).toStringAsFixed(1);
+          _progressLabel = '$doneMb / $totalMb MB';
+        });
+      },
+    );
+
+    if (result == null) {
+      if (!mounted) return;
+      setState(() {
+        _status = 'no android asset in release';
+        _busy = false;
+      });
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _status = 'installing ${result.version}...';
+      _progressLabel = result.stagingDir.path;
+    });
+
+    await _updater.applyUpdate(result.stagingDir.path);
+
+    if (!mounted) return;
+    setState(() {
+      _status = 'system installer opened';
+      _busy = false;
+    });
   }
 
   @override
@@ -174,7 +228,7 @@ class _UpdateTestScreenState extends State<UpdateTestScreen> {
           padding: const EdgeInsets.all(16),
           child: ListView(
             children: [
-              _demoBanner(context),
+              _buildDemoBanner(context),
               const SizedBox(height: 20),
               _row('Repo', '${widget.owner}/${widget.repo}'),
               _row('Platform', Platform.operatingSystem),
@@ -182,17 +236,7 @@ class _UpdateTestScreenState extends State<UpdateTestScreen> {
               _row('Remote version', _remoteVersion),
               _row('Status', _status),
               const SizedBox(height: 20),
-              if (_progress > 0)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    LinearProgressIndicator(value: _progress),
-                    const SizedBox(height: 4),
-                    Text(_progressLabel,
-                        style: Theme.of(context).textTheme.bodySmall),
-                    const SizedBox(height: 16),
-                  ],
-                ),
+              if (_progress > 0) _buildProgress(context),
               FilledButton.icon(
                 onPressed: _busy ? null : _check,
                 icon: const Icon(Icons.search),
@@ -211,7 +255,7 @@ class _UpdateTestScreenState extends State<UpdateTestScreen> {
     );
   }
 
-  Widget _demoBanner(BuildContext context) {
+  Widget _buildDemoBanner(BuildContext context) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -223,31 +267,57 @@ class _UpdateTestScreenState extends State<UpdateTestScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('BUILD TAG',
-              style: TextStyle(
-                  fontSize: 12,
-                  letterSpacing: 1.2,
-                  color: Colors.deepPurple.shade700,
-                  fontWeight: FontWeight.bold)),
+          Text(
+            'BUILD TAG',
+            style: TextStyle(
+              fontSize: 12,
+              letterSpacing: 1.2,
+              color: Colors.deepPurple.shade700,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           const SizedBox(height: 4),
-          Text(kDemoBuildTag,
-              style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900,
-                  color: Colors.deepPurple.shade900)),
+          Text(
+            kDemoBuildTag,
+            style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w900,
+              color: Colors.deepPurple.shade900,
+            ),
+          ),
           const SizedBox(height: 12),
-          Text('Changelog:',
-              style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.deepPurple.shade700,
-                  fontWeight: FontWeight.bold)),
+          Text(
+            'Changelog:',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.deepPurple.shade700,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           const SizedBox(height: 4),
-          ...kDemoChangelog.map((line) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Text('• $line'),
-              )),
+          ...kDemoChangelog.map(
+            (line) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Text('• $line'),
+            ),
+          ),
         ],
       ),
+    );
+  }
+
+  Widget _buildProgress(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        LinearProgressIndicator(value: _progress),
+        const SizedBox(height: 4),
+        Text(
+          _progressLabel,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 16),
+      ],
     );
   }
 
@@ -259,8 +329,10 @@ class _UpdateTestScreenState extends State<UpdateTestScreen> {
         children: [
           SizedBox(
             width: 140,
-            child: Text(label,
-                style: const TextStyle(fontWeight: FontWeight.w600)),
+            child: Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
           ),
           Expanded(child: SelectableText(value)),
         ],

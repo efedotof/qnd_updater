@@ -5,14 +5,6 @@
 #include "include/qnd_updater/qnd_updater_plugin.h"
 #include "qnd_updater_plugin_private.h"
 
-// This demonstrates a simple unit test of the C portion of this plugin's
-// implementation.
-//
-// Once you have built the plugin's example app, you can run these tests
-// from the command line. For instance, for a plugin called my_plugin
-// built for x64 debug, run:
-// $ build/linux/x64/debug/plugins/my_plugin/my_plugin_test
-
 namespace qnd_updater {
 namespace test {
 
@@ -23,8 +15,16 @@ TEST(QndUpdaterPlugin, GetPlatformVersion) {
   FlValue* result = fl_method_success_response_get_result(
       FL_METHOD_SUCCESS_RESPONSE(response));
   ASSERT_EQ(fl_value_get_type(result), FL_VALUE_TYPE_STRING);
-  // The full string varies, so just validate that it has the right format.
   EXPECT_THAT(fl_value_get_string(result), testing::StartsWith("Linux "));
+}
+
+TEST(QndUpdaterPlugin, GetAppVersionReturnsString) {
+  g_autoptr(FlMethodResponse) response = get_app_version();
+  ASSERT_NE(response, nullptr);
+  ASSERT_TRUE(FL_IS_METHOD_SUCCESS_RESPONSE(response));
+  FlValue* result = fl_method_success_response_get_result(
+      FL_METHOD_SUCCESS_RESPONSE(response));
+  ASSERT_EQ(fl_value_get_type(result), FL_VALUE_TYPE_STRING);
 }
 
 }  // namespace test

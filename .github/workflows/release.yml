@@ -122,6 +122,56 @@ jobs:
           path: dist/*
 
 
+  build-linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev \
+            libglu1-mesa
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Enable Linux desktop
+        run: flutter config --enable-linux-desktop
+
+      - name: Build Linux
+        working-directory: example
+        run: |
+          flutter pub get
+          flutter build linux --release
+
+      - name: Write version file
+        run: |
+          VERSION=$(grep '^version:' example/pubspec.yaml \
+            | sed 's/version: //' | sed 's/+.*//' | xargs)
+          echo "writing version=$VERSION"
+          echo "$VERSION" > example/build/linux/x64/release/bundle/version
+          cat example/build/linux/x64/release/bundle/version
+
+      - name: Package zip
+        run: |
+          mkdir -p dist
+          cd example/build/linux/x64/release/bundle
+          zip -qry "$GITHUB_WORKSPACE/dist/qnd_updater-${{ github.ref_name }}-linux.zip" .
+          ls -la "$GITHUB_WORKSPACE/dist/"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*
+
+
   build-macos:
     name: macOS Universal
     runs-on: macos-14
@@ -132,7 +182,12 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-      - run: flutter config --enable-macos-desktop
+
+      - name: Enable native assets
+        run: flutter config --enable-native-assets
+
+      - name: Enable macOS desktop
+        run: flutter config --enable-macos-desktop
 
       - name: Build arm64
         working-directory: example
@@ -219,7 +274,7 @@ jobs:
 
   release:
     name: Publish release
-    needs: [build-android, build-windows, build-macos]
+    needs: [build-android, build-windows, build-linux, build-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

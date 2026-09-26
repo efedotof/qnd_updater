@@ -1,10 +1,12 @@
+#ifndef FLUTTER_PLUGIN_QND_UPDATER_PLUGIN_PRIVATE_H_
+#define FLUTTER_PLUGIN_QND_UPDATER_PLUGIN_PRIVATE_H_
+
 #include <flutter_linux/flutter_linux.h>
 
 #include "include/qnd_updater/qnd_updater_plugin.h"
 
-// This file exposes some plugin internals for unit testing. See
-// https://github.com/flutter/flutter/issues/88724 for current limitations
-// in the unit-testable API.
+// Exposed for unit tests only.
+FlMethodResponse* get_platform_version();
+FlMethodResponse* get_app_version();
 
-// Handles the getPlatformVersion method call.
-FlMethodResponse *get_platform_version();
+#endif  // FLUTTER_PLUGIN_QND_UPDATER_PLUGIN_PRIVATE_H_
