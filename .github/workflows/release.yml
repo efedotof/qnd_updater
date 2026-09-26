@@ -60,19 +60,15 @@ jobs:
       - name: Stage APK and zip
         run: |
           mkdir -p dist
-
-          # сырой APK для прямого скачивания
           cp example/build/app/outputs/flutter-apk/app-release.apk \
              dist/qnd_updater-${{ github.ref_name }}.apk
 
-          # APK внутри zip для апдейтера
           mkdir -p staging/android
           cp example/build/app/outputs/flutter-apk/app-release.apk \
              staging/android/qnd_updater.apk
           cd staging/android
           zip -q ../../dist/qnd_updater-${{ github.ref_name }}-android.zip qnd_updater.apk
           cd ../..
-
           ls -la dist/
 
       - name: Cleanup secrets
@@ -114,8 +110,6 @@ jobs:
             -Path "dist/windows/*" `
             -DestinationPath "dist/qnd_updater-${{ github.ref_name }}-windows.zip" `
             -Force
-          # сырой .exe для прямого скачивания (без DLL не запустится,
-          # но удобно для проверки версии)
           Copy-Item `
             "example/build/windows/x64/runner/Release/qnd_updater_example.exe" `
             "dist/qnd_updater-${{ github.ref_name }}-windows.exe" `
@@ -147,21 +141,27 @@ jobs:
         run: |
           flutter pub get
           flutter build macos --release
-      - run: |
+
+      - name: Save arm64 app
+        run: |
           mkdir -p /tmp/arm
           cp -R example/build/macos/Build/Products/Release/*.app /tmp/arm/Runner.app
 
-      - name: Clean and build x86_64
+      - name: Clean for x86_64 build
         working-directory: example
         run: |
           flutter clean
           flutter pub get
-      - working-directory: example
+
+      - name: Build x86_64
+        working-directory: example
         env:
           FLUTTER_XCODE_ARCHS: x86_64
           FLUTTER_XCODE_ONLY_ACTIVE_ARCH: "NO"
         run: flutter build macos --release
-      - run: |
+
+      - name: Save intel app
+        run: |
           mkdir -p /tmp/intel
           cp -R example/build/macos/Build/Products/Release/*.app /tmp/intel/Runner.app
 
@@ -188,11 +188,27 @@ jobs:
           done
           lipo -info "$U/Contents/MacOS/$MAIN"
 
-      - name: Package zip
+      - name: Package zip (for auto-updater)
         run: |
           mkdir -p dist
           cd /tmp/universal
           zip -qry "$GITHUB_WORKSPACE/dist/qnd_updater-${{ github.ref_name }}-macos.zip" Runner.app
+          ls -la "$GITHUB_WORKSPACE/dist/"
+
+      - name: Package dmg (installer)
+        run: |
+          set -e
+          rm -rf /tmp/dmg
+          mkdir -p /tmp/dmg
+          cp -R /tmp/universal/Runner.app /tmp/dmg/qnd_updater_example.app
+          ln -s /Applications /tmp/dmg/Applications
+
+          hdiutil create \
+            -volname "qnd_updater ${{ github.ref_name }}" \
+            -srcfolder /tmp/dmg \
+            -ov -format UDZO \
+            "$GITHUB_WORKSPACE/dist/qnd_updater-${{ github.ref_name }}-macos.dmg"
+
           ls -la "$GITHUB_WORKSPACE/dist/"
 
       - uses: actions/upload-artifact@v4
@@ -218,7 +234,7 @@ jobs:
           echo "===== collected ====="
           ls -la dist/
           echo "===== by type ====="
-          find dist -type f \( -name '*.zip' -o -name '*.apk' -o -name '*.exe' \) -exec ls -la {} \;
+          find dist -type f \( -name '*.zip' -o -name '*.apk' -o -name '*.exe' -o -name '*.dmg' \) -exec ls -la {} \;
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -229,3 +245,4 @@ jobs:
             dist/*.zip
             dist/*.apk
             dist/*.exe
+            dist/*.dmg
