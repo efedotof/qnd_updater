@@ -397,14 +397,58 @@ jobs:
           echo "=== entitlements after unpack ==="
           codesign -d --entitlements - Runner.app
 
-      - name: Package dmg (installer)
+      - name: Package dmg (hidden app + install script)
         run: |
           set -e
           rm -rf /tmp/dmg
-          mkdir -p /tmp/dmg
-          /usr/bin/ditto /tmp/universal/Runner.app /tmp/dmg/qnd_updater_example.app
+          mkdir -p /tmp/dmg/.payload
+
+          # Приложение кладём в скрытую папку .payload
+          /usr/bin/ditto /tmp/universal/Runner.app \
+            /tmp/dmg/.payload/qnd_updater_example.app
+
+          # Симлинк на /Applications (для интуитивной подсказки)
           ln -s /Applications /tmp/dmg/Applications
 
+          # Установочный скрипт
+          cat > /tmp/dmg/Установить.command <<'SCRIPT'
+          #!/bin/bash
+          set -e
+          DIR="$(cd "$(dirname "$0")" && pwd)"
+          APP_SRC="$DIR/.payload/qnd_updater_example.app"
+          APP_DEST="/Applications/qnd_updater_example.app"
+
+          echo "==> Устанавливаю qnd_updater_example..."
+          rm -rf "$APP_DEST"
+          /usr/bin/ditto "$APP_SRC" "$APP_DEST"
+          /usr/bin/xattr -cr "$APP_DEST"
+          echo "==> Готово. Запускаю..."
+          open "$APP_DEST"
+          SCRIPT
+          chmod +x /tmp/dmg/Установить.command
+
+          # README
+          cat > /tmp/dmg/ПРОЧТИ_МЕНЯ.txt <<'README'
+          Установка приложения
+          ====================
+
+          1. Кликните ПРАВОЙ кнопкой мыши по файлу "Установить.command".
+          2. Выберите "Открыть" в контекстном меню.
+          3. В появившемся диалоговом окне нажмите "Открыть" ещё раз.
+             (это стандартное предупреждение macOS для скриптов из
+             интернета — оно появляется ОДИН раз)
+          4. Скрипт сам скопирует приложение в /Applications
+             и запустит его.
+
+          После этого приложение можно запускать двойным кликом
+          как обычно. Обновления устанавливаются автоматически.
+          README
+
+          # Прячем .payload и от Finder (dot-prefix работает всегда,
+          # SetFile добавляет флаг invisible поверх этого)
+          SetFile -a V /tmp/dmg/.payload || true
+
+          # Создаём DMG
           hdiutil create \
             -volname "qnd_updater ${{ github.ref_name }}" \
             -srcfolder /tmp/dmg \
@@ -412,6 +456,23 @@ jobs:
             "$GITHUB_WORKSPACE/dist/qnd_updater-${{ github.ref_name }}-macos.dmg"
 
           ls -la "$GITHUB_WORKSPACE/dist/"
+
+      - name: Verify dmg contents
+        run: |
+          set -e
+          rm -rf /tmp/verify_dmg
+          mkdir -p /tmp/verify_dmg
+          hdiutil attach \
+            "$GITHUB_WORKSPACE/dist/qnd_updater-${{ github.ref_name }}-macos.dmg" \
+            -mountpoint /tmp/verify_dmg -nobrowse
+          echo "=== dmg contents ==="
+          ls -la /tmp/verify_dmg
+          echo "=== .payload contents ==="
+          ls -la /tmp/verify_dmg/.payload
+          echo "=== verify signature ==="
+          codesign --verify --verbose=2 \
+            "/tmp/verify_dmg/.payload/qnd_updater_example.app"
+          hdiutil detach /tmp/verify_dmg
 
       - uses: actions/upload-artifact@v4
         with:
