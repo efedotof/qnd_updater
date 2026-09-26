@@ -29,6 +29,41 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Install latest Gradle wrapper
+        working-directory: example/android
+        run: |
+          if [ -x gradlew ] && [ -f gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "Gradle wrapper already present, skipping"
+            ls -la gradlew gradle/wrapper/
+            exit 0
+          fi
+
+          echo "Gradle wrapper missing, generating latest version..."
+
+          INFO=$(curl -fsSL https://services.gradle.org/versions/current)
+          LATEST=$(echo "$INFO" | jq -r .version)
+          URL=$(echo "$INFO" | jq -r .downloadUrl)
+          echo "Latest Gradle: $LATEST"
+          echo "Download URL: $URL"
+
+          TMP=$(mktemp -d)
+          curl -fsSL "$URL" -o "$TMP/gradle.zip"
+          unzip -q "$TMP/gradle.zip" -d "$TMP"
+          GRADLE_BIN="$TMP/gradle-${LATEST}/bin/gradle"
+
+          GEN=$(mktemp -d)
+          ( cd "$GEN" && "$GRADLE_BIN" wrapper --gradle-version "$LATEST" --distribution-type bin )
+
+          cp "$GEN/gradlew" "$GEN/gradlew.bat" .
+          mkdir -p gradle/wrapper
+          cp "$GEN/gradle/wrapper/gradle-wrapper.jar" gradle/wrapper/
+          cp "$GEN/gradle/wrapper/gradle-wrapper.properties" gradle/wrapper/
+          chmod +x gradlew
+
+          rm -rf "$TMP" "$GEN"
+          echo "Generated wrapper:"
+          ls -la gradlew gradlew.bat gradle/wrapper/
+
       - name: Decode keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -38,7 +73,6 @@ jobs:
             exit 1
           fi
           mkdir -p example/android
-          # если мигрировал в p12 — поменяй имя файла тут и в key.properties
           echo "$KEYSTORE_BASE64" | base64 -d > example/android/upload-keystore.jks
           ls -la example/android/upload-keystore.jks
 
@@ -148,7 +182,7 @@ jobs:
 
   build-macos-intel:
     name: macOS Intel
-    runs-on: macos-13
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
@@ -165,6 +199,7 @@ jobs:
         working-directory: example
         env:
           FLUTTER_XCODE_ARCHS: x86_64
+          FLUTTER_XCODE_ONLY_ACTIVE_ARCH: "NO"
         run: |
           flutter pub get
           flutter build macos --release
