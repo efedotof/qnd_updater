@@ -91,11 +91,45 @@ jobs:
           sed -i 's/=.*/=***/' example/android/key.properties
           cat example/android/key.properties
 
+      - name: Debug android structure
+        working-directory: example
+        run: |
+          echo "===== pwd ====="
+          pwd
+          echo "===== git HEAD ====="
+          git -C .. log --oneline -1 || true
+          echo "===== ls android ====="
+          ls -la android/ || true
+          echo "===== ls android/app ====="
+          ls -la android/app/ || true
+          echo "===== ls android/app/src/main ====="
+          ls -la android/app/src/main/ || true
+          echo "===== all AndroidManifest.xml ====="
+          find android -name 'AndroidManifest.xml' -type f || true
+          echo "===== app/src/main/AndroidManifest.xml ====="
+          cat android/app/src/main/AndroidManifest.xml || true
+          echo "===== grep io.flutter.app ====="
+          grep -rn "io\.flutter\.app\." android/ || echo "no io.flutter.app references"
+          echo "===== GeneratedPluginRegistrant ====="
+          find . -name 'GeneratedPluginRegistrant*' || true
+          echo "===== .flutter-plugins ====="
+          ls -la .flutter-plugins* 2>/dev/null || echo "no .flutter-plugins files"
+          echo "===== plugin pubspec ====="
+          cat ../pubspec.yaml
+          echo "===== app/build.gradle.kts ====="
+          cat android/app/build.gradle.kts || true
+          echo "===== app/build.gradle ====="
+          cat android/app/build.gradle 2>/dev/null || true
+          echo "===== settings.gradle.kts ====="
+          cat android/settings.gradle.kts 2>/dev/null || true
+          echo "===== settings.gradle ====="
+          cat android/settings.gradle 2>/dev/null || true
+
       - name: Build signed APK
         working-directory: example
         run: |
           flutter pub get
-          flutter build apk --release
+          flutter build apk --release --verbose 2>&1 | tail -200
 
       - name: Verify signature
         run: |
