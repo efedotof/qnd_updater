@@ -57,13 +57,22 @@ jobs:
           BT=$(ls $ANDROID_HOME/build-tools | sort -V | tail -n1)
           $ANDROID_HOME/build-tools/$BT/apksigner verify --print-certs "$APK" | grep -i 'SHA-256'
 
-      - name: Package Android zip
+      - name: Stage APK and zip
         run: |
-          mkdir -p dist/android
-          cp example/build/app/outputs/flutter-apk/app-release.apk dist/android/qnd_updater.apk
-          cd dist/android
-          zip -q ../qnd_updater-${{ github.ref_name }}-android.zip qnd_updater.apk
+          mkdir -p dist
+
+          # сырой APK для прямого скачивания
+          cp example/build/app/outputs/flutter-apk/app-release.apk \
+             dist/qnd_updater-${{ github.ref_name }}.apk
+
+          # APK внутри zip для апдейтера
+          mkdir -p staging/android
+          cp example/build/app/outputs/flutter-apk/app-release.apk \
+             staging/android/qnd_updater.apk
+          cd staging/android
+          zip -q ../../dist/qnd_updater-${{ github.ref_name }}-android.zip qnd_updater.apk
           cd ../..
+
           ls -la dist/
 
       - name: Cleanup secrets
@@ -72,8 +81,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: android-zip
-          path: dist/qnd_updater-*-android.zip
+          name: android
+          path: dist/*
 
 
   build-windows:
@@ -105,12 +114,18 @@ jobs:
             -Path "dist/windows/*" `
             -DestinationPath "dist/qnd_updater-${{ github.ref_name }}-windows.zip" `
             -Force
+          # сырой .exe для прямого скачивания (без DLL не запустится,
+          # но удобно для проверки версии)
+          Copy-Item `
+            "example/build/windows/x64/runner/Release/qnd_updater_example.exe" `
+            "dist/qnd_updater-${{ github.ref_name }}-windows.exe" `
+            -Force
           Get-ChildItem dist/
 
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-zip
-          path: dist/qnd_updater-*-windows.zip
+          name: windows
+          path: dist/*
 
 
   build-macos:
@@ -182,8 +197,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-zip
-          path: dist/qnd_updater-*-macos.zip
+          name: macos
+          path: dist/*
 
 
   release:
@@ -192,15 +207,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+
       - name: Show files
-        run: ls -la dist/
-      - uses: softprops/action-gh-release@v2
+        run: |
+          echo "===== collected ====="
+          ls -la dist/
+          echo "===== by type ====="
+          find dist -type f \( -name '*.zip' -o -name '*.apk' -o -name '*.exe' \) -exec ls -la {} \;
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
-          draft: true
-          files: dist/*.zip
+          files: |
+            dist/*.zip
+            dist/*.apk
+            dist/*.exe
