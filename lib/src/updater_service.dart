@@ -1,18 +1,15 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
+import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:path/path.dart' as p;
-
-import 'models/update_manifest.dart';
 
 class GithubRelease {
   final String tag;
   final String name;
   final Map<String, GithubAsset> assets;
+
   GithubRelease({required this.tag, required this.name, required this.assets});
 }
 
@@ -21,6 +18,7 @@ class GithubAsset {
   final String name;
   final int size;
   final String browserDownloadUrl;
+
   GithubAsset({
     required this.id,
     required this.name,
@@ -29,16 +27,17 @@ class GithubAsset {
   });
 }
 
-class UpdatePlan {
+class UpdateResult {
   final String version;
   final String tag;
-  final List<FileEntry> changed;
-  final int bytesToDownload;
-  UpdatePlan({
+  final Directory stagingDir;
+  final int totalBytes;
+
+  UpdateResult({
     required this.version,
     required this.tag,
-    required this.changed,
-    required this.bytesToDownload,
+    required this.stagingDir,
+    required this.totalBytes,
   });
 }
 
@@ -57,13 +56,14 @@ class UpdaterService {
 
   Map<String, String> get _headers => {
         'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2026-03-10',
+        'X-GitHub-Api-Version': '2026-03-28',
         if (githubToken != null && githubToken!.isNotEmpty)
           'Authorization': 'Bearer $githubToken',
       };
 
   Future<GithubRelease?> fetchLatestRelease() async {
-    final url = Uri.parse('https://api.github.com/repos/$owner/$repo/releases/latest');
+    final url =
+        Uri.parse('https://api.github.com/repos/$owner/$repo/releases/latest');
     final resp = await _client.get(url, headers: _headers);
     if (resp.statusCode != 200) {
       debugPrint('GitHub releases: ${resp.statusCode} ${resp.body}');
@@ -88,101 +88,79 @@ class UpdaterService {
     );
   }
 
- 
-  Future<UpdatePlan?> planUpdate({
-    required Directory appDir,
-    required String platformKey, 
+  String _assetNameFor(String platformKey, String tag) {
+    final cleanTag = tag.startsWith('v') ? tag : 'v$tag';
+    return 'qnd_updater-$cleanTag-$platformKey.zip';
+  }
+
+  Future<UpdateResult?> downloadUpdate({
+    required String platformKey,
+    required Directory stagingDir,
+    void Function(int downloaded, int total)? onProgress,
   }) async {
     final release = await fetchLatestRelease();
     if (release == null) return null;
 
-    final manifestName = 'manifest-$platformKey.json';
-    final manifestAsset = release.assets[manifestName];
-    if (manifestAsset == null) {
-      debugPrint('Нет ассета $manifestName в релизе ${release.tag}');
+    final assetName = _assetNameFor(platformKey, release.tag);
+    final asset = release.assets[assetName];
+    if (asset == null) {
+      debugPrint('Ассет "$assetName" не найден. Доступные: '
+          '${release.assets.keys.join(", ")}');
       return null;
     }
 
-    final manifest = await _downloadManifest(manifestAsset);
-    final changed = <FileEntry>[];
-    int bytes = 0;
-
-    for (final entry in manifest.files.values) {
-      final local = File(p.join(appDir.path, entry.path));
-      if (!await local.exists()) {
-        changed.add(entry);
-        bytes += entry.size;
-        continue;
-      }
-      final localHash = await _sha256File(local);
-      if (localHash != entry.sha256) {
-        changed.add(entry);
-        bytes += entry.size;
-      }
+    if (await stagingDir.exists()) {
+      await stagingDir.delete(recursive: true);
     }
-
-    return UpdatePlan(
-      version: manifest.version,
-      tag: release.tag,
-      changed: changed,
-      bytesToDownload: bytes,
-    );
-  }
-
-  Future<Directory> downloadChanged({
-    required UpdatePlan plan,
-    required GithubRelease release,
-    required Directory stagingDir,
-    void Function(int downloaded, int total)? onProgress,
-  }) async {
-    if (await stagingDir.exists()) await stagingDir.delete(recursive: true);
     await stagingDir.create(recursive: true);
 
-    int done = 0;
-    final total = plan.bytesToDownload;
+    final zipFile = File('${stagingDir.path}/_update.zip');
 
-    for (final entry in plan.changed) {
-      final asset = release.assets[entry.asset];
-      if (asset == null) {
-        throw StateError('Ассет ${entry.asset} отсутствует в релизе');
-      }
-      final dst = File(p.join(stagingDir.path, entry.path));
-      await dst.parent.create(recursive: true);
-
-      final req = http.Request('GET', Uri.parse(asset.browserDownloadUrl));
-      req.headers.addAll(_headers);
-      req.headers['Accept'] = 'application/octet-stream';
-      final resp = await _client.send(req);
-      if (resp.statusCode != 200) {
-        throw StateError('Скачивание ${entry.asset}: HTTP ${resp.statusCode}');
-      }
-      final sink = dst.openWrite();
-      await for (final chunk in resp.stream) {
-        sink.add(chunk);
-        done += chunk.length;
-        onProgress?.call(done, total);
-      }
-      await sink.close();
-
-      final got = await _sha256File(dst);
-      if (got != entry.sha256) {
-        throw StateError('Хэш ${entry.path} не совпал: $got != ${entry.sha256}');
-      }
-    }
-    return stagingDir;
-  }
-
-  Future<UpdateManifest> _downloadManifest(GithubAsset asset) async {
     final req = http.Request('GET', Uri.parse(asset.browserDownloadUrl));
     req.headers.addAll(_headers);
     req.headers['Accept'] = 'application/octet-stream';
     final resp = await _client.send(req);
-    final body = await resp.stream.bytesToString();
-    return UpdateManifest.fromJson(jsonDecode(body) as Map<String, dynamic>);
-  }
+    if (resp.statusCode != 200) {
+      throw StateError('Скачивание ${asset.name}: HTTP ${resp.statusCode}');
+    }
 
-  static Future<String> _sha256File(File file) async {
-    final digest = await sha256.bind(file.openRead()).first;
-    return digest.toString();
+    final cl = resp.contentLength;
+    final total = (cl != null && cl > 0) ? cl : asset.size;
+    int done = 0;
+    final sink = zipFile.openWrite();
+    await for (final chunk in resp.stream) {
+      sink.add(chunk);
+      done += chunk.length;
+      onProgress?.call(done, total);
+    }
+    await sink.close();
+
+
+    final input = InputFileStream(zipFile.path);
+    final archive = ZipDecoder().decodeStream(input);
+    for (final file in archive) {
+      final outPath = '${stagingDir.path}/${file.name}';
+      if (file.isFile) {
+        final out = File(outPath);
+        await out.parent.create(recursive: true);
+        final outStream = out.openWrite();
+        await outStream.addStream(file.content as Stream<List<int>>);
+        await outStream.close();
+      } else {
+        await Directory(outPath).create(recursive: true);
+      }
+    }
+    await input.close();
+    await zipFile.delete();
+
+    final version =
+        release.tag.startsWith('v') ? release.tag.substring(1) : release.tag;
+
+    return UpdateResult(
+      version: version,
+      tag: release.tag,
+      stagingDir: stagingDir,
+      totalBytes: done,
+    );
   }
 }

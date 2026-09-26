@@ -34,7 +34,9 @@ public class QndUpdaterPlugin: NSObject, FlutterPlugin {
 
   private func applyUpdate(stagingDir: String, result: @escaping FlutterResult) {
     let bundlePath = Bundle.main.bundlePath
+    let bundleName = (bundlePath as NSString).lastPathComponent
     let pid = ProcessInfo.processInfo.processIdentifier
+
 
     let script = """
     #!/bin/bash
@@ -42,14 +44,25 @@ public class QndUpdaterPlugin: NSObject, FlutterPlugin {
     PID=\(pid)
     STAGING="\(stagingDir)"
     BUNDLE="\(bundlePath)"
+    APP_NAME="\(bundleName)"
 
     # ждём выхода процесса
     while kill -0 "$PID" 2>/dev/null; do sleep 0.4; done
 
-    # поверх бандла
-    /usr/bin/ditto "$STAGING" "$BUNDLE"
+    SRC_APP="$STAGING/$APP_NAME"
 
-    # снимаем quarantine на всякий
+    if [ -d "$SRC_APP/Contents" ]; then
+      # ZIP содержит <app_name>.app/Contents — копируем содержимое бандла
+      /usr/bin/ditto "$SRC_APP/Contents" "$BUNDLE/Contents"
+    elif [ -d "$STAGING/Contents" ]; then
+      # ZIP содержит Contents прямо в корне
+      /usr/bin/ditto "$STAGING/Contents" "$BUNDLE/Contents"
+    else
+      echo "update archive layout not recognized" >&2
+      exit 1
+    fi
+
+    # снимаем quarantine
     /usr/bin/xattr -dr com.apple.quarantine "$BUNDLE" 2>/dev/null || true
 
     # перезапуск

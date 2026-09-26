@@ -39,11 +39,11 @@ class QndUpdaterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
           result.error("UNAVAILABLE", "versionName unavailable", null)
         }
       }
-      "installApk" -> {
+      "applyUpdate" -> {
         val ctx = appContext
-        val path = call.argument<String>("path")
+        val path = call.argument<String>("stagingDir")
         if (ctx == null || path == null) {
-          result.error("BAD_ARGS", "context or path missing", null); return
+          result.error("BAD_ARGS", "context or stagingDir missing", null); return
         }
         try {
           installApk(ctx, path)
@@ -57,12 +57,23 @@ class QndUpdaterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
   }
 
   private fun installApk(ctx: Context, path: String) {
-    val file = File(path)
-    if (!file.exists()) throw IllegalStateException("APK not found: $path")
+    val src = File(path)
+    if (!src.exists()) throw IllegalStateException("Path not found: $path")
 
+   
+    val apk: File = if (src.isDirectory) {
+      src.listFiles()
+          ?.firstOrNull { it.isFile && it.name.endsWith(".apk") }
+          ?: throw IllegalStateException("No .apk file in $path")
+    } else {
+      if (!src.name.endsWith(".apk")) {
+        throw IllegalStateException("Not an APK: $path")
+      }
+      src
+    }
 
     val authority = "${ctx.packageName}.qnd_updater.fileprovider"
-    val uri: Uri = FileProvider.getUriForFile(ctx, authority, file)
+    val uri: Uri = FileProvider.getUriForFile(ctx, authority, apk)
 
     val intent = Intent(Intent.ACTION_VIEW).apply {
       setDataAndType(uri, "application/vnd.android.package-archive")

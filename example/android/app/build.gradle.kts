@@ -3,7 +3,6 @@ import java.io.FileInputStream
 
 plugins {
     id("com.android.application")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -37,7 +36,10 @@ android {
             if (keystorePropertiesExists) {
                 keyAlias = keystoreProperties["keyAlias"] as String?
                 keyPassword = keystoreProperties["keyPassword"] as String?
-                storeFile = keystoreProperties["storeFile"]?.let { file(it as String) }
+                // rootProject = example/android/, поэтому storeFile=upload-keystore.jks
+                storeFile = keystoreProperties["storeFile"]?.let {
+                    rootProject.file(it as String)
+                }
                 storePassword = keystoreProperties["storePassword"] as String?
             }
         }

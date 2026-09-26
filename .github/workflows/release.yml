@@ -13,69 +13,24 @@ env:
 
 jobs:
   build-android:
-    name: Android APK (signed)
+    name: Android
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 
-      - name: Install latest Gradle wrapper
-        working-directory: example/android
-        run: |
-          if [ -x gradlew ] && [ -f gradle/wrapper/gradle-wrapper.jar ]; then
-            echo "Gradle wrapper already present, skipping"
-            ls -la gradlew gradle/wrapper/
-            exit 0
-          fi
-
-          echo "Gradle wrapper missing, generating latest version..."
-
-          INFO=$(curl -fsSL https://services.gradle.org/versions/current)
-          LATEST=$(echo "$INFO" | jq -r .version)
-          URL=$(echo "$INFO" | jq -r .downloadUrl)
-          echo "Latest Gradle: $LATEST"
-          echo "Download URL: $URL"
-
-          TMP=$(mktemp -d)
-          curl -fsSL "$URL" -o "$TMP/gradle.zip"
-          unzip -q "$TMP/gradle.zip" -d "$TMP"
-          GRADLE_BIN="$TMP/gradle-${LATEST}/bin/gradle"
-
-          GEN=$(mktemp -d)
-          (
-            cd "$GEN"
-            echo "rootProject.name = 'wrapper-gen'" > settings.gradle
-            "$GRADLE_BIN" wrapper --gradle-version "$LATEST" --distribution-type bin
-          )
-
-          cp "$GEN/gradlew" "$GEN/gradlew.bat" .
-          mkdir -p gradle/wrapper
-          cp "$GEN/gradle/wrapper/gradle-wrapper.jar" gradle/wrapper/
-          cp "$GEN/gradle/wrapper/gradle-wrapper.properties" gradle/wrapper/
-          chmod +x gradlew
-
-          rm -rf "$TMP" "$GEN"
-          echo "Generated wrapper:"
-          ls -la gradlew gradlew.bat gradle/wrapper/
-
       - name: Decode keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::KEYSTORE_BASE64 is empty"
-            exit 1
-          fi
           mkdir -p example/android
           echo "$KEYSTORE_BASE64" | base64 -d > example/android/upload-keystore.jks
           ls -la example/android/upload-keystore.jks
@@ -86,12 +41,11 @@ jobs:
           storePassword=${{ secrets.KEYSTORE_PASSWORD }}
           keyPassword=${{ secrets.KEY_PASSWORD }}
           keyAlias=${{ secrets.KEY_ALIAS }}
-          storeFile=../upload-keystore.jks
+          storeFile=upload-keystore.jks
           EOF
-          echo "key.properties written"
-          ls -la example/android/key.properties
+          cat example/android/key.properties
 
-      - name: Build signed APK
+      - name: Build APK
         working-directory: example
         run: |
           flutter pub get
@@ -101,14 +55,16 @@ jobs:
         run: |
           APK=example/build/app/outputs/flutter-apk/app-release.apk
           BT=$(ls $ANDROID_HOME/build-tools | sort -V | tail -n1)
-          $ANDROID_HOME/build-tools/$BT/apksigner verify --print-certs "$APK" \
-            | grep -i 'SHA-256' | head -n1
+          $ANDROID_HOME/build-tools/$BT/apksigner verify --print-certs "$APK" | grep -i 'SHA-256'
 
-      - name: Stage APK
+      - name: Package Android zip
         run: |
-          mkdir -p out
-          cp example/build/app/outputs/flutter-apk/app-release.apk \
-             out/qnd_updater-${{ github.ref_name }}.apk
+          mkdir -p dist/android
+          cp example/build/app/outputs/flutter-apk/app-release.apk dist/android/qnd_updater.apk
+          cd dist/android
+          zip -q ../qnd_updater-${{ github.ref_name }}-android.zip qnd_updater.apk
+          cd ../..
+          ls -la dist/
 
       - name: Cleanup secrets
         if: always()
@@ -116,8 +72,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: apk
-          path: out/*.apk
+          name: android-zip
+          path: dist/qnd_updater-*-android.zip
 
 
   build-windows:
@@ -125,115 +81,43 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-
-      - name: Enable Windows desktop
-        run: flutter config --enable-windows-desktop
-
-      - name: Build Windows
+      - run: flutter config --enable-windows-desktop
+      - name: Build
         working-directory: example
         run: |
           flutter pub get
           flutter build windows --release
-
-      - name: Stage build output
+      - name: Package zip
         shell: bash
         run: |
-          mkdir -p out/stage
-          cp -R example/build/windows/x64/runner/Release/* out/stage/
-
-      - name: Generate manifest
-        shell: bash
-        env:
-          PLATFORM: windows
-          TAG: ${{ github.ref_name }}
-        run: |
-          python3 - <<'PY'
-          import hashlib, json, os, urllib.parse
-          platform = os.environ['PLATFORM']
-          tag = os.environ['TAG'].lstrip('v')
-          stage = 'out/stage'
-          files = []
-          for root, _, fs in os.walk(stage):
-              for fn in fs:
-                  full = os.path.join(root, fn)
-                  rel = os.path.relpath(full, stage).replace(os.sep, '/')
-                  asset = platform + '__' + urllib.parse.quote(rel, safe='')
-                  with open(full, 'rb') as fh:
-                      h = hashlib.sha256(fh.read()).hexdigest()
-                  files.append({
-                      'path': rel,
-                      'sha256': h,
-                      'size': os.path.getsize(full),
-                      'asset': asset,
-                  })
-          os.makedirs('out', exist_ok=True)
-          with open(f'out/manifest-{platform}.json', 'w') as fh:
-              json.dump({'version': tag, 'files': files}, fh, indent=2)
-          print(f'manifest windows: {len(files)} files')
-          PY
-
+          mkdir -p dist/windows
+          cp -R example/build/windows/x64/runner/Release/* dist/windows/
+          cd dist/windows
+          zip -qry ../qnd_updater-${{ github.ref_name }}-windows.zip .
+          cd ../..
+          ls -la dist/
       - uses: actions/upload-artifact@v4
         with:
-          name: windows
-          path: out/
+          name: windows-zip
+          path: dist/qnd_updater-*-windows.zip
 
 
-  build-macos-intel:
-    name: macOS Intel
+  build-macos:
+    name: macOS Universal
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-
-      - name: Enable macOS desktop
-        run: flutter config --enable-macos-desktop
-
-      - name: Build x86_64
-        working-directory: example
-        env:
-          FLUTTER_XCODE_ARCHS: x86_64
-          FLUTTER_XCODE_ONLY_ACTIVE_ARCH: "NO"
-        run: |
-          flutter pub get
-          flutter build macos --release
-
-      - name: Stage Runner.app
-        run: |
-          mkdir -p out/app
-          cp -R example/build/macos/Build/Products/Release/*.app out/app/Runner.app
-          file out/app/Runner.app/Contents/MacOS/*
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-intel
-          path: out/app
-
-
-  build-macos-arm:
-    name: macOS ARM64
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
-
-      - name: Enable macOS desktop
-        run: flutter config --enable-macos-desktop
+      - run: flutter config --enable-macos-desktop
 
       - name: Build arm64
         working-directory: example
@@ -242,171 +126,75 @@ jobs:
         run: |
           flutter pub get
           flutter build macos --release
+      - run: |
+          mkdir -p /tmp/arm
+          cp -R example/build/macos/Build/Products/Release/*.app /tmp/arm/Runner.app
 
-      - name: Stage Runner.app
+      - name: Clean and build x86_64
+        working-directory: example
         run: |
-          mkdir -p out/app
-          cp -R example/build/macos/Build/Products/Release/*.app out/app/Runner.app
-          file out/app/Runner.app/Contents/MacOS/*
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-arm
-          path: out/app
-
-
-  build-macos-universal:
-    name: macOS Universal
-    needs: [build-macos-intel, build-macos-arm]
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: macos-intel
-          path: intel
-      - uses: actions/download-artifact@v4
-        with:
-          name: macos-arm
-          path: arm
+          flutter clean
+          flutter pub get
+      - working-directory: example
+        env:
+          FLUTTER_XCODE_ARCHS: x86_64
+          FLUTTER_XCODE_ONLY_ACTIVE_ARCH: "NO"
+        run: flutter build macos --release
+      - run: |
+          mkdir -p /tmp/intel
+          cp -R example/build/macos/Build/Products/Release/*.app /tmp/intel/Runner.app
 
       - name: Merge with lipo
         run: |
           set -e
-          UNIVERSAL="out/universal/Runner.app"
-          mkdir -p out/universal
-          cp -R arm/Runner.app "$UNIVERSAL"
-
-          MAIN=$(ls "$UNIVERSAL/Contents/MacOS/" | head -n1)
-          echo "Main binary: $MAIN"
+          U=/tmp/universal/Runner.app
+          mkdir -p /tmp/universal
+          cp -R /tmp/arm/Runner.app "$U"
+          MAIN=$(ls "$U/Contents/MacOS/" | head -n1)
           lipo -create \
-            "arm/Runner.app/Contents/MacOS/$MAIN" \
-            "intel/Runner.app/Contents/MacOS/$MAIN" \
-            -output "$UNIVERSAL/Contents/MacOS/$MAIN"
-
-          for fw in "$UNIVERSAL/Contents/Frameworks/"*.framework; do
+            "/tmp/arm/Runner.app/Contents/MacOS/$MAIN" \
+            "/tmp/intel/Runner.app/Contents/MacOS/$MAIN" \
+            -output "$U/Contents/MacOS/$MAIN"
+          for fw in "$U/Contents/Frameworks/"*.framework; do
             name=$(basename "$fw" .framework)
             bin="$fw/Versions/A/$name"
             [ -f "$bin" ] || bin="$fw/$name"
-            arm_bin="arm/Runner.app/Contents/Frameworks/$name.framework/Versions/A/$name"
-            intel_bin="intel/Runner.app/Contents/Frameworks/$name.framework/Versions/A/$name"
-            [ -f "$arm_bin" ] || arm_bin="arm/Runner.app/Contents/Frameworks/$name.framework/$name"
-            [ -f "$intel_bin" ] || intel_bin="intel/Runner.app/Contents/Frameworks/$name.framework/$name"
-            if [ -f "$arm_bin" ] && [ -f "$intel_bin" ]; then
-              echo "lipo: $name"
-              lipo -create "$arm_bin" "$intel_bin" -output "$bin"
+            a="/tmp/arm/Runner.app/Contents/Frameworks/$name.framework/Versions/A/$name"
+            i="/tmp/intel/Runner.app/Contents/Frameworks/$name.framework/Versions/A/$name"
+            if [ -f "$a" ] && [ -f "$i" ]; then
+              lipo -create "$a" "$i" -output "$bin"
             fi
           done
+          lipo -info "$U/Contents/MacOS/$MAIN"
 
-          lipo -info "$UNIVERSAL/Contents/MacOS/$MAIN"
-          file "$UNIVERSAL/Contents/MacOS/$MAIN"
-
-          mkdir -p out
-          cd out/universal
-          zip -qry "../qnd_updater-${{ github.ref_name }}-macos-universal.zip" Runner.app
-          cd ../..
-
-      - name: Generate manifest
-        env:
-          TAG: ${{ github.ref_name }}
+      - name: Package zip
         run: |
-          python3 - <<'PY'
-          import hashlib, json, os, urllib.parse
-          tag = os.environ['TAG'].lstrip('v')
-          stage = 'out/universal/Runner.app'
-          files = []
-          for root, _, fs in os.walk(stage):
-              for fn in fs:
-                  full = os.path.join(root, fn)
-                  rel = os.path.relpath(full, stage).replace(os.sep, '/')
-                  asset = 'macos__' + urllib.parse.quote(rel, safe='')
-                  with open(full, 'rb') as fh:
-                      h = hashlib.sha256(fh.read()).hexdigest()
-                  files.append({
-                      'path': rel,
-                      'sha256': h,
-                      'size': os.path.getsize(full),
-                      'asset': asset,
-                  })
-          with open('out/manifest-macos.json', 'w') as fh:
-              json.dump({'version': tag, 'files': files}, fh, indent=2)
-          print(f'manifest macos: {len(files)} files')
-          PY
+          mkdir -p dist
+          cd /tmp/universal
+          zip -qry "$GITHUB_WORKSPACE/dist/qnd_updater-${{ github.ref_name }}-macos.zip" Runner.app
+          ls -la "$GITHUB_WORKSPACE/dist/"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: macos
-          path: out/
+          name: macos-zip
+          path: dist/qnd_updater-*-macos.zip
 
 
   release:
-    name: Publish GitHub Release
-    needs: [build-android, build-windows, build-macos-universal]
+    name: Publish release
+    needs: [build-android, build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
-          path: all
-
-      - name: Show collected files
-        run: find all -type f | sort | head -200
-
-      - name: Publish archive release
-        uses: softprops/action-gh-release@v2
+          path: dist
+          merge-multiple: true
+      - name: Show files
+        run: ls -la dist/
+      - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
-          files: |
-            all/apk/*.apk
-            all/macos/*.zip
-            all/windows/manifest-windows.json
-            all/macos/manifest-macos.json
-
-      - name: Upload per-file assets (Windows)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -e
-          manifest=all/windows/manifest-windows.json
-          [ -f "$manifest" ] || { echo "no manifest"; exit 0; }
-
-          python3 - <<'PY' > /tmp/windows_assets.txt
-          import json, os
-          m = json.load(open('all/windows/manifest-windows.json'))
-          for f in m['files']:
-              src = os.path.join('all/windows/stage', f['path'])
-              print(f"{src}\t{f['asset']}")
-          PY
-
-          while IFS=$'\t' read -r src name; do
-            [ -f "$src" ] || continue
-            tmp="/tmp/$(basename "$name")"
-            cp "$src" "$tmp"
-            gh release upload "${{ github.ref_name }}" "$tmp#$(basename "$name")" --clobber
-          done < /tmp/windows_assets.txt
-
-      - name: Upload per-file assets (macOS)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -e
-          manifest=all/macos/manifest-macos.json
-          [ -f "$manifest" ] || { echo "no manifest"; exit 0; }
-
-          python3 - <<'PY' > /tmp/macos_assets.txt
-          import json, os
-          m = json.load(open('all/macos/manifest-macos.json'))
-          for f in m['files']:
-              src = os.path.join('all/macos/universal/Runner.app', f['path'])
-              print(f"{src}\t{f['asset']}")
-          PY
-
-          while IFS=$'\t' read -r src name; do
-            [ -f "$src" ] || continue
-            tmp="/tmp/$(basename "$name")"
-            cp "$src" "$tmp"
-            gh release upload "${{ github.ref_name }}" "$tmp#$(basename "$name")" --clobber
-          done < /tmp/macos_assets.txt
+          draft: true
+          files: dist/*.zip
