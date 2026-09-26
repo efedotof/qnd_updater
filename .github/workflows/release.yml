@@ -86,21 +86,27 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-      - run: flutter config --enable-windows-desktop
-      - name: Build
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Build Windows
         working-directory: example
         run: |
           flutter pub get
           flutter build windows --release
+
       - name: Package zip
-        shell: bash
+        shell: pwsh
         run: |
-          mkdir -p dist/windows
-          cp -R example/build/windows/x64/runner/Release/* dist/windows/
-          cd dist/windows
-          zip -qry ../qnd_updater-${{ github.ref_name }}-windows.zip .
-          cd ../..
-          ls -la dist/
+          New-Item -ItemType Directory -Force -Path dist/windows | Out-Null
+          Copy-Item -Recurse -Force "example/build/windows/x64/runner/Release/*" "dist/windows/"
+          Compress-Archive `
+            -Path "dist/windows/*" `
+            -DestinationPath "dist/qnd_updater-${{ github.ref_name }}-windows.zip" `
+            -Force
+          Get-ChildItem dist/
+
       - uses: actions/upload-artifact@v4
         with:
           name: windows-zip
