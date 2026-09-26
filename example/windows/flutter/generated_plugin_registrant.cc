@@ -6,9 +6,9 @@
 
 #include "generated_plugin_registrant.h"
 
-#include <qnd_updater/qnd_updater_plugin.h>
+#include <qnd_updater/qnd_updater_plugin_c_api.h>
 
 void RegisterPlugins(flutter::PluginRegistry* registry) {
-  QndUpdaterPluginRegisterWithRegistrar(
-      registry->GetRegistrarForPlugin("QndUpdaterPlugin"));
+  QndUpdaterPluginCApiRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("QndUpdaterPluginCApi"));
 }
