@@ -1,55 +1,57 @@
-// You have generated a new plugin project without specifying the `--platforms`
-// flag. A plugin project with no platform support was generated. To add a
-// platform, run `flutter create -t plugin --platforms <platforms> .` under the
-// same directory. You can also find a detailed instruction on how to add
-// platforms in the `pubspec.yaml` at
-// https://flutter.dev/docs/development/packages-and-plugins/developing-packages#plugin-platforms.
-
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:qnd_updater/src/get_last_version_repository_github.dart';
 
 import 'qnd_updater_platform_interface.dart';
 
+export 'src/models/update_manifest.dart';
+export 'src/updater_service.dart';
+
+enum UpdateStatus { upToDate, updateAvailable, error }
+
 class QndUpdater {
-  void getLastVersion(
-      {required String githubToken,
-      required String owner,
-      required String repo}) async {
-    final appVersion = await getAppVersion(); // get app Version
+  Future<String?> getAppVersion() =>
+      QndUpdaterPlatform.instance.getAppVersion();
 
-    GetLastVersionRepositoryGithub getLastVersion =
-        GetLastVersionRepositoryGithub(githubToken, owner: owner, repo: repo);
-
-    final res = await getLastVersion.getLastVersion();
-
-    if (res == null && appVersion == null) {
-      debugPrint("Проверте правильность ваших данных!!!");
+  Future<UpdateStatus> checkForUpdate({
+    required String githubToken,
+    required String owner,
+    required String repo,
+  }) async {
+    final appVersion = await getAppVersion();
+    if (appVersion == null) {
+      debugPrint('Не удалось получить версию приложения');
+      return UpdateStatus.error;
     }
 
-    final newVersion = _compareVersions(res!, appVersion!);
+    final last = await GetLastVersionRepositoryGithub(
+      githubToken,
+      owner: owner,
+      repo: repo,
+    ).getLastVersion();
 
-    if (newVersion == 1) {
-      debugPrint("Доступна новая версия!!!");
+    if (last == null) {
+      debugPrint('Не удалось получить последнюю версию с GitHub');
+      return UpdateStatus.error;
     }
+
+    final cmp = _compareVersions(last, appVersion);
+    debugPrint('local=$appVersion remote=$last cmp=$cmp');
+
+    return cmp > 0 ? UpdateStatus.updateAvailable : UpdateStatus.upToDate;
   }
 
-  Future<String?> getAppVersion() {
-    return QndUpdaterPlatform.instance.getAppVersion();
-  }
+  Future<bool> applyUpdate(String path) =>
+      QndUpdaterPlatform.instance.applyUpdate(path);
 
-  int _compareVersions(String versionA, String versionB) {
-    final partsA = versionA.split('.').map(int.parse).toList();
-    final partsB = versionB.split('.').map(int.parse).toList();
-
-    for (var i = 0; i < partsA.length || i < partsB.length; i++) {
-      final numA = i < partsA.length ? partsA[i] : 0;
-      final numB = i < partsB.length ? partsB[i] : 0;
-
-      if (numA != numB) {
-        return numA > numB ? 1 : -1;
-      }
+  int _compareVersions(String a, String b) {
+    final pa = a.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    final pb = b.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    final n = pa.length > pb.length ? pa.length : pb.length;
+    for (var i = 0; i < n; i++) {
+      final x = i < pa.length ? pa[i] : 0;
+      final y = i < pb.length ? pb[i] : 0;
+      if (x != y) return x > y ? 1 : -1;
     }
-
     return 0;
   }
 }

@@ -5,6 +5,7 @@
 #include <flutter/plugin_registrar_windows.h>
 
 #include <memory>
+#include <string>
 
 namespace qnd_updater {
 
@@ -13,19 +14,19 @@ class QndUpdaterPlugin : public flutter::Plugin {
   static void RegisterWithRegistrar(flutter::PluginRegistrarWindows *registrar);
 
   QndUpdaterPlugin();
-
   virtual ~QndUpdaterPlugin();
 
-  // Disallow copy and assign.
   QndUpdaterPlugin(const QndUpdaterPlugin&) = delete;
   QndUpdaterPlugin& operator=(const QndUpdaterPlugin&) = delete;
 
-  // Called when a method is called on this plugin's channel from Dart.
   void HandleMethodCall(
       const flutter::MethodCall<flutter::EncodableValue> &method_call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
+
+ private:
+  static std::string GetAppVersionString();
 };
 
-}  // namespace qnd_updater
+}  
 
 #endif  // FLUTTER_PLUGIN_QND_UPDATER_PLUGIN_H_

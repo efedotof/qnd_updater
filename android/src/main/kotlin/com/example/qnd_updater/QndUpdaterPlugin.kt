@@ -1,45 +1,79 @@
 package com.example.qnd_updater
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import androidx.annotation.NonNull
+import androidx.core.content.FileProvider
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
-import io.flutter.plugin.common.MethodChannel.MethodCallHandler
-import io.flutter.plugin.common.MethodChannel.Result 
+import java.io.File
 
-class QndUpdaterPlugin: FlutterPlugin, MethodCallHandler {
-  private lateinit var channel : MethodChannel
-  private var applicationContext: Context? = null
+class QndUpdaterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
+  private lateinit var channel: MethodChannel
+  private var appContext: Context? = null
 
-  override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-    channel = MethodChannel(flutterPluginBinding.binaryMessenger, "qnd_updater")
+  override fun onAttachedToEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
+    channel = MethodChannel(binding.binaryMessenger, "qnd_updater")
     channel.setMethodCallHandler(this)
-    applicationContext = flutterPluginBinding.applicationContext
+    appContext = binding.applicationContext
   }
 
-  override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
-    if (call.method == "getAppVersion") { 
-      val context = applicationContext
-      if (context != null) {
+  override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: MethodChannel.Result) {
+    when (call.method) {
+      "getAppVersion" -> {
+        val ctx = appContext
+        if (ctx == null) { result.error("NO_CONTEXT", "no context", null); return }
         try {
-          val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-          val versionName = packageInfo.versionName
-          result.success(versionName)
+          val info = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+          val v = info.versionName ?: run {
+            @Suppress("DEPRECATION")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode.toString()
+            else info.versionCode.toString()
+          }
+          result.success(v)
         } catch (e: PackageManager.NameNotFoundException) {
-          result.error("UNAVAILABLE", "Не удалось получить версию приложения.", null)
+          result.error("UNAVAILABLE", "versionName unavailable", null)
         }
-      } else {
-        result.error("NO_CONTEXT", "Контекст приложения недоступен.", null)
       }
-    } else {
-      result.notImplemented()
+      "installApk" -> {
+        val ctx = appContext
+        val path = call.argument<String>("path")
+        if (ctx == null || path == null) {
+          result.error("BAD_ARGS", "context or path missing", null); return
+        }
+        try {
+          installApk(ctx, path)
+          result.success(true)
+        } catch (e: Exception) {
+          result.error("INSTALL_FAILED", e.message, null)
+        }
+      }
+      else -> result.notImplemented()
     }
+  }
+
+  private fun installApk(ctx: Context, path: String) {
+    val file = File(path)
+    if (!file.exists()) throw IllegalStateException("APK not found: $path")
+
+
+    val authority = "${ctx.packageName}.qnd_updater.fileprovider"
+    val uri: Uri = FileProvider.getUriForFile(ctx, authority, file)
+
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+      setDataAndType(uri, "application/vnd.android.package-archive")
+      addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    ctx.startActivity(intent)
   }
 
   override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
     channel.setMethodCallHandler(null)
-    applicationContext = null
+    appContext = null
   }
 }

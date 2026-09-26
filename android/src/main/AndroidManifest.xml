@@ -1,3 +1,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-  package="com.example.qnd_updater">
+    package="com.example.qnd_updater">
+
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <application>
+        <provider
+            android:name=".QndUpdaterFileProvider"
+            android:authorities="${applicationId}.qnd_updater.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/qnd_updater_file_paths" />
+        </provider>
+    </application>
 </manifest>

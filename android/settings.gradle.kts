@@ -1,0 +1,1 @@
+rootProject.name = "qnd_updater"

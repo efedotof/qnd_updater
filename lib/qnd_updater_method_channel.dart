@@ -3,15 +3,21 @@ import 'package:flutter/services.dart';
 
 import 'qnd_updater_platform_interface.dart';
 
-/// An implementation of [QndUpdaterPlatform] that uses method channels.
 class MethodChannelQndUpdater extends QndUpdaterPlatform {
-  /// The method channel used to interact with the native platform.
   @visibleForTesting
   final methodChannel = const MethodChannel('qnd_updater');
 
   @override
   Future<String?> getAppVersion() async {
-    final version = await methodChannel.invokeMethod<String>('getAppVersion');
-    return version;
+    return methodChannel.invokeMethod<String>('getAppVersion');
+  }
+
+  @override
+  Future<bool> applyUpdate(String stagingDir) async {
+    final ok = await methodChannel.invokeMethod<bool>(
+      'applyUpdate',
+      <String, dynamic>{'stagingDir': stagingDir},
+    );
+    return ok ?? false;
   }
 }
