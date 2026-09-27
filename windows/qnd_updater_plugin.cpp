@@ -58,12 +58,10 @@ std::string QndUpdaterPlugin::GetAppVersionString() {
       info == nullptr) {
     return "";
   }
-
   std::ostringstream v;
   v << HIWORD(info->dwFileVersionMS) << "."
     << LOWORD(info->dwFileVersionMS) << "."
-    << HIWORD(info->dwFileVersionLS) << "."
-    << LOWORD(info->dwFileVersionLS);
+    << HIWORD(info->dwFileVersionLS);
   return v.str();
 }
 
@@ -131,31 +129,83 @@ void QndUpdaterPlugin::HandleMethodCall(
     wchar_t tmp[MAX_PATH];
     GetTempPathW(MAX_PATH, tmp);
     std::wstring bat = std::wstring(tmp) + L"qnd_updater_apply.bat";
+    std::wstring log = std::wstring(tmp) + L"qnd_updater_apply.log";
+
+    DeleteFileW(log.c_str());
 
     {
-      std::wofstream f(bat, std::ios::binary);
+      std::wofstream f(bat, std::ios::binary | std::ios::trunc);
       if (!f.is_open()) {
         result->Error("IO", "cannot write helper .bat");
         return;
       }
+
       f << L"@echo off\r\n";
       f << L"chcp 65001 >nul\r\n";
-      f << L"setlocal\r\n";
+      f << L"setlocal EnableDelayedExpansion\r\n";
+      f << L"set LOG=\"" << log << L"\"\r\n";
       f << L"set TARGET=" << exeName << L"\r\n";
+      f << L"set STAGING=" << staging << L"\r\n";
+      f << L"set INSTALL=" << install << L"\r\n";
+      f << L"set EXE=" << exe << L"\r\n";
+
+      f << L"echo [%DATE% %TIME%] === START === > %LOG%\r\n";
+      f << L"echo TARGET=%TARGET% >> %LOG%\r\n";
+      f << L"echo STAGING=%STAGING% >> %LOG%\r\n";
+      f << L"echo INSTALL=%INSTALL% >> %LOG%\r\n";
+
+      f << L"echo [%TIME%] --- Version BEFORE copy --- >> %LOG%\r\n";
+      f << L"powershell -NoProfile -Command \"(Get-Item '%EXE%').VersionInfo.FileVersion\" >> %LOG% 2>&1\r\n";
+
       f << L":wait\r\n";
-      f << L"tasklist /FI \"IMAGENAME eq %TARGET%\" 2>NUL | find /I \"%TARGET%\" >NUL\r\n";
-      f << L"if not errorlevel 1 (timeout /t 1 /nobreak >nul & goto wait)\r\n";
-      f << L"xcopy /E /I /Y /Q \"" << staging << L"\\*\" \"" << install << L"\\\"\r\n";
-      f << L"start \"\" \"" << exe << L"\"\r\n";
+      f << L"tasklist /FI \"IMAGENAME eq %TARGET%\" 2>NUL | findstr /I /C:\"%TARGET%\" >NUL\r\n";
+      f << L"if not errorlevel 1 (\r\n";
+      f << L"  timeout /t 1 /nobreak >nul\r\n";
+      f << L"  goto wait\r\n";
+      f << L")\r\n";
+      f << L"echo [%TIME%] Process stopped >> %LOG%\r\n";
+
+      f << L"timeout /t 2 /nobreak >nul\r\n";
+
+      f << L"echo [%TIME%] Starting xcopy... >> %LOG%\r\n";
+      f << L"xcopy /E /I /Y /Q \"%STAGING%\\*\" \"%INSTALL%\\\" >> %LOG% 2>&1\r\n";
+      f << L"echo [%TIME%] xcopy errorlevel=!errorlevel! >> %LOG%\r\n";
+
+      f << L"echo [%TIME%] --- Version AFTER copy --- >> %LOG%\r\n";
+      f << L"powershell -NoProfile -Command \"(Get-Item '%EXE%').VersionInfo.FileVersion\" >> %LOG% 2>&1\r\n";
+
+      f << L"echo [%TIME%] Starting app... >> %LOG%\r\n";
+      f << L"cd /d \"%INSTALL%\"\r\n";
+      f << L"start \"\" \"%EXE%\"\r\n";
+      f << L"echo [%TIME%] start returned !errorlevel! >> %LOG%\r\n";
+
+      f << L"timeout /t 3 /nobreak >nul\r\n";
+      f << L"tasklist /FI \"IMAGENAME eq %TARGET%\" 2>NUL | findstr /I /C:\"%TARGET%\" >NUL\r\n";
+      f << L"if errorlevel 1 (\r\n";
+      f << L"  echo [%TIME%] !!! ERROR: app NOT running after start !!! >> %LOG%\r\n";
+      f << L"  echo Возможные причины: >> %LOG%\r\n";
+      f << L"  echo   - antivirus/SmartScreen блокирует новый exe >> %LOG%\r\n";
+      f << L"  echo   - missing DLL (нужны VC++ Redistributable) >> %LOG%\r\n";
+      f << L"  echo   - exe повреждён или несовместим >> %LOG%\r\n";
+      f << L") else (\r\n";
+      f << L"  echo [%TIME%] OK: app is running >> %LOG%\r\n";
+      f << L")\r\n";
+
+      f << L"echo [%TIME%] === END === >> %LOG%\r\n";
       f << L"del \"%~f0\"\r\n";
+      f << L"exit /b\r\n";
     }
 
     STARTUPINFOW si{};
     si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+
     PROCESS_INFORMATION pi{};
     std::wstring cmd = L"cmd.exe /c \"" + bat + L"\"";
+
     BOOL ok = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE,
-                             CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr,
+                             CREATE_NO_WINDOW, nullptr,
                              nullptr, &si, &pi);
     if (!ok) {
       result->Error("SPAWN", "CreateProcess failed");
