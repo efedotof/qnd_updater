@@ -101,7 +101,7 @@ jobs:
           flutter pub get
           flutter build windows --release
 
-      - name: Package zip
+      - name: Package zip (portable)
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist/windows | Out-Null
@@ -115,6 +115,86 @@ jobs:
             "dist/qnd_updater-${{ github.ref_name }}-windows.exe" `
             -Force
           Get-ChildItem dist/
+
+      - name: Build NSIS installer
+        shell: bash
+        run: |
+          set -e
+          VERSION=$(grep '^version:' example/pubspec.yaml \
+            | sed 's/version: //' | sed 's/+.*//' | xargs)
+          echo "version = $VERSION"
+
+          rm -rf nsis_payload
+          mkdir -p nsis_payload
+          cp -R example/build/windows/x64/runner/Release/* nsis_payload/
+
+          cat > installer.nsi <<'NSIEOF'
+          !include "MUI2.nsh"
+          !include "FileFunc.nsh"
+
+          Name "Qnd Updater"
+          OutFile "dist\qnd_updater-${REF_NAME}-windows-setup.exe"
+          InstallDir "$PROGRAMFILES64\qnd_updater_example"
+          InstallDirRegKey HKLM "Software\QndUpdater" "InstallDir"
+          RequestExecutionLevel admin
+          Unicode true
+
+          !define MUI_ABORTWARNING
+          !define MUI_FINISHPAGE_RUN "$INSTDIR\qnd_updater_example.exe"
+          !define MUI_FINISHPAGE_RUN_TEXT "Запустить Qnd Updater"
+
+          !insertmacro MUI_PAGE_WELCOME
+          !insertmacro MUI_PAGE_DIRECTORY
+          !insertmacro MUI_PAGE_INSTFILES
+          !insertmacro MUI_PAGE_FINISH
+
+          !insertmacro MUI_UNPAGE_CONFIRM
+          !insertmacro MUI_UNPAGE_INSTFILES
+
+          !insertmacro MUI_LANGUAGE "English"
+          !insertmacro MUI_LANGUAGE "Russian"
+
+          Section "Install"
+            SetOutPath "$INSTDIR"
+            File /r "nsis_payload\*.*"
+
+            CreateDirectory "$SMPROGRAMS\Qnd Updater"
+            CreateShortcut "$SMPROGRAMS\Qnd Updater\Qnd Updater.lnk" "$INSTDIR\qnd_updater_example.exe"
+            CreateShortcut "$SMPROGRAMS\Qnd Updater\Удалить.lnk" "$INSTDIR\uninstall.exe"
+            CreateShortcut "$DESKTOP\Qnd Updater.lnk" "$INSTDIR\qnd_updater_example.exe"
+
+            WriteUninstaller "$INSTDIR\uninstall.exe"
+
+            WriteRegStr HKLM "Software\QndUpdater" "InstallDir" "$INSTDIR"
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\QndUpdater" "DisplayName" "Qnd Updater"
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\QndUpdater" "DisplayVersion" "${VERSION}"
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\QndUpdater" "UninstallString" "$INSTDIR\uninstall.exe"
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\QndUpdater" "DisplayIcon" "$INSTDIR\qnd_updater_example.exe"
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\QndUpdater" "Publisher" "Qnd Updater"
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\QndUpdater" "InstallLocation" "$INSTDIR"
+            WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\QndUpdater" "NoModify" 1
+            WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\QndUpdater" "NoRepair" 1
+          SectionEnd
+
+          Section "Uninstall"
+            Delete "$DESKTOP\Qnd Updater.lnk"
+            Delete "$SMPROGRAMS\Qnd Updater\Qnd Updater.lnk"
+            Delete "$SMPROGRAMS\Qnd Updater\Удалить.lnk"
+            RMDir "$SMPROGRAMS\Qnd Updater"
+            RMDir /r "$INSTDIR"
+            DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\QndUpdater"
+            DeleteRegKey HKLM "Software\QndUpdater"
+          SectionEnd
+          NSIEOF
+
+          MAKENSIS=$(command -v makensis || true)
+          if [ -z "$MAKENSIS" ]; then
+            MAKENSIS="/c/Program Files (x86)/NSIS/makensis.exe"
+          fi
+          echo "using makensis: $MAKENSIS"
+          "$MAKENSIS" -V2 /DREF_NAME="${{ github.ref_name }}" /DVERSION="$VERSION" installer.nsi
+
+          ls -la dist/
 
       - uses: actions/upload-artifact@v4
         with:
@@ -164,6 +244,88 @@ jobs:
           mkdir -p dist
           cd example/build/linux/x64/release/bundle
           zip -qry "$GITHUB_WORKSPACE/dist/qnd_updater-${{ github.ref_name }}-linux.zip" .
+          ls -la "$GITHUB_WORKSPACE/dist/"
+
+      - name: Build .run installer
+        run: |
+          set -e
+          VERSION=$(grep '^version:' example/pubspec.yaml \
+            | sed 's/version: //' | sed 's/+.*//' | xargs)
+          echo "version = $VERSION"
+
+          rm -rf /tmp/run_payload
+          mkdir -p /tmp/run_payload
+          cp -R example/build/linux/x64/release/bundle/* /tmp/run_payload/
+          ( cd /tmp/run_payload && tar -czf /tmp/payload.tar.gz . )
+
+          cat > /tmp/installer_header.sh <<'RUNEOF'
+          #!/bin/bash
+          set -e
+
+          echo "==============================================="
+          echo "  Qnd Updater - установка"
+          echo "==============================================="
+          echo ""
+
+          DEFAULT_DIR="$HOME/.local/share/qnd_updater"
+
+          read -e -p "Куда установить? [$DEFAULT_DIR]: " INSTALL_DIR
+          INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_DIR}"
+          INSTALL_DIR="${INSTALL_DIR/#\~/$HOME}"
+
+          if [ -e "$INSTALL_DIR" ]; then
+            echo ""
+            echo "Директория $INSTALL_DIR уже существует."
+            read -p "Перезаписать содержимое? [y/N]: " ans
+            case "$ans" in
+              [yY]*) rm -rf "$INSTALL_DIR" ;;
+              *) echo "Отмена."; exit 1 ;;
+            esac
+          fi
+
+          mkdir -p "$INSTALL_DIR"
+          echo "Устанавливаю в $INSTALL_DIR..."
+
+          PAYLOAD_LINE=$(awk '/^__PAYLOAD_BELOW__$/{print NR + 1; exit 0;}' "$0")
+          tail -n +$PAYLOAD_LINE "$0" | tar -xz -C "$INSTALL_DIR"
+
+          EXE="$INSTALL_DIR/qnd_updater_example"
+          chmod +x "$EXE"
+
+          APPS_DIR="$HOME/.local/share/applications"
+          mkdir -p "$APPS_DIR"
+          cat > "$APPS_DIR/qnd-updater.desktop" <<EOF
+          [Desktop Entry]
+          Type=Application
+          Name=Qnd Updater
+          Exec=$EXE
+          Icon=$INSTALL_DIR/data/flutter_assets/assets/icon.png
+          Categories=Utility;
+          Terminal=false
+          StartupWMClass=qnd_updater_example
+          EOF
+          chmod +x "$APPS_DIR/qnd-updater.desktop"
+
+          BIN_DIR="$HOME/.local/bin"
+          mkdir -p "$BIN_DIR"
+          ln -sf "$EXE" "$BIN_DIR/qnd_updater"
+
+          echo ""
+          echo "==============================================="
+          echo "  Готово"
+          echo "==============================================="
+          echo "Путь установки: $INSTALL_DIR"
+          echo "Запуск: из меню приложений или командой 'qnd_updater'"
+          echo ""
+
+          exit 0
+
+          __PAYLOAD_BELOW__
+          RUNEOF
+
+          RUN_FILE="$GITHUB_WORKSPACE/dist/qnd_updater-${{ github.ref_name }}-linux-setup.run"
+          cat /tmp/installer_header.sh /tmp/payload.tar.gz > "$RUN_FILE"
+          chmod +x "$RUN_FILE"
           ls -la "$GITHUB_WORKSPACE/dist/"
 
       - name: Build AppImage (manual install)
@@ -403,14 +565,11 @@ jobs:
           rm -rf /tmp/dmg
           mkdir -p /tmp/dmg/.payload
 
-          # Приложение кладём в скрытую папку .payload
           /usr/bin/ditto /tmp/universal/Runner.app \
             /tmp/dmg/.payload/qnd_updater_example.app
 
-          # Симлинк на /Applications (для интуитивной подсказки)
           ln -s /Applications /tmp/dmg/Applications
 
-          # Установочный скрипт
           cat > /tmp/dmg/Установить.command <<'SCRIPT'
           #!/bin/bash
           set -e
@@ -427,7 +586,6 @@ jobs:
           SCRIPT
           chmod +x /tmp/dmg/Установить.command
 
-          # README
           cat > /tmp/dmg/ПРОЧТИ_МЕНЯ.txt <<'README'
           Установка приложения
           ====================
@@ -444,11 +602,8 @@ jobs:
           как обычно. Обновления устанавливаются автоматически.
           README
 
-          # Прячем .payload и от Finder (dot-prefix работает всегда,
-          # SetFile добавляет флаг invisible поверх этого)
           SetFile -a V /tmp/dmg/.payload || true
 
-          # Создаём DMG
           hdiutil create \
             -volname "qnd_updater ${{ github.ref_name }}" \
             -srcfolder /tmp/dmg \
@@ -497,7 +652,7 @@ jobs:
           echo "===== collected ====="
           ls -la dist/
           echo "===== by type ====="
-          find dist -type f \( -name '*.zip' -o -name '*.apk' -o -name '*.exe' -o -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \) -exec ls -la {} \;
+          find dist -type f \( -name '*.zip' -o -name '*.apk' -o -name '*.exe' -o -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.run' \) -exec ls -la {} \;
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -511,3 +666,4 @@ jobs:
             dist/*.dmg
             dist/*.deb
             dist/*.AppImage
+            dist/*.run

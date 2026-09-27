@@ -105,15 +105,45 @@ static FlMethodResponse* apply_update(const gchar* staging_dir) {
 
   const std::string body =
       "#!/bin/bash\n"
-      "set -e\n"
+      "LOG=/tmp/qnd_updater_apply_" + std::to_string(pid) + ".log\n"
+      "exec >> \"$LOG\" 2>&1\n"
+      "echo \"=== $(date) apply_update pid=$$ ===\"\n"
+      "set -x\n"
+
       "PID=" + std::to_string(pid) + "\n"
       "STAGING=" + shell_quote(staging_dir) + "\n"
       "INSTALL=" + shell_quote(install_dir) + "\n"
       "EXE=" + shell_quote(exe) + "\n"
-      "while kill -0 \"$PID\" 2>/dev/null; do sleep 0.3; done\n"
-      "cp -r \"$STAGING\"/. \"$INSTALL\"/\n"
+
+      "echo '=== wait for PID =='\n"
+      "for i in $(seq 1 200); do\n"
+      "  if ! kill -0 \"$PID\" 2>/dev/null; then\n"
+      "    echo \"gone after $i iterations\"\n"
+      "    break\n"
+      "  fi\n"
+      "  sleep 0.3\n"
+      "done\n"
+      "sleep 1\n"
+
+      "echo '=== copy staging -> install ==='\n"
+      "cd \"$INSTALL\" || { echo 'cannot cd to INSTALL'; exit 1; }\n"
+      "cp -rf \"$STAGING\"/. \"$INSTALL\"/ || echo 'cp had errors, continuing'\n"
+
+      "echo '=== verify new version file ==='\n"
+      "if [ -f \"$STAGING/version\" ]; then\n"
+      "  echo \"staging version: $(cat \"$STAGING/version\")\"\n"
+      "  echo \"install version: $(cat \"$INSTALL/version\" 2>/dev/null || echo none)\"\n"
+      "fi\n"
+
+      "echo '=== chmod exe ==='\n"
       "chmod +x \"$EXE\" 2>/dev/null || true\n"
-      "nohup \"$EXE\" >/dev/null 2>&1 &\n"
+
+      "echo '=== relaunch ==='\n"
+      "cd \"$INSTALL\"\n"
+      "( nohup \"$EXE\" </dev/null >>\"$LOG\" 2>&1 & )\n"
+      "sleep 3\n"
+
+      "echo '=== helper done ==='\n"
       "rm -- \"$0\"\n";
 
   {
@@ -141,8 +171,6 @@ static FlMethodResponse* apply_update(const gchar* staging_dir) {
   g_autoptr(FlValue) ok = fl_value_new_bool(TRUE);
   return FL_METHOD_RESPONSE(fl_method_success_response_new(ok));
 }
-
-
 
 static void qnd_updater_plugin_handle_method_call(
     QndUpdaterPlugin* self,
@@ -175,8 +203,6 @@ static void qnd_updater_plugin_handle_method_call(
 
   fl_method_call_respond(method_call, response, nullptr);
 }
-
-
 
 static void qnd_updater_plugin_dispose(GObject* object) {
   G_OBJECT_CLASS(qnd_updater_plugin_parent_class)->dispose(object);
