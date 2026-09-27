@@ -1,6 +1,6 @@
 # qnd_updater
 
-Flutter плагин для обновления приложений на Android, Windows, macOS и Linux. Проверяет новые версии через GitHub Releases, скачивает ZIP-архив под нужную платформу, распаковывает его и передает нативному коду для установки. Не требует сторонних сервисов, работает на чистом GitHub Releases.
+Flutter плагин для обновления приложений на Android, Windows, macOS и Linux. Проверяет новые версии через GitHub Releases, скачивает ZIP-архив под нужную платформу, распаковывает его и передаёт нативному коду для установки. Не требует сторонних сервисов, работает на чистом GitHub Releases.
 
 ## Возможности
 
@@ -11,19 +11,19 @@ Flutter плагин для обновления приложений на Andro
 - Полностью нативное применение обновления без внешних зависимостей
 - Корректная распаковка `.app` на macOS с сохранением симлинков и прав
 - Автоматическое снятие карантина при установке и обновлении на macOS
-- Установочный DMG с готовым скриптом для пользователя
+- Установочные файлы для конечного пользователя на каждой платформе: NSIS для Windows, DMG для macOS, `.run` и `.deb` для Linux, APK для Android
 - Поддержка Android, Windows, macOS и Linux из одной кодовой базы
 
 ## Поддерживаемые платформы
 
-| Платформа | Формат ассета | Способ установки |
-|-----------|---------------|------------------|
-| Android | `qnd_updater-<tag>-android.zip` | ZIP распаковывается, APK передается системному установщику |
-| Windows | `qnd_updater-<tag>-windows.zip` | ZIP распаковывается в staging, helper .bat копирует файлы и перезапускает |
-| macOS | `qnd_updater-<tag>-macos.zip` | ZIP распаковывается через `ditto`, helper .sh копирует `Contents` и перезапускает |
-| Linux | `qnd_updater-<tag>-linux.zip` | ZIP распаковывается в staging, helper .sh копирует файлы и перезапускает |
+| Платформа | Формат ZIP для автообновления | Способ применения обновления |
+|-----------|-------------------------------|------------------------------|
+| Android | `qnd_updater-<tag>-android.zip` | ZIP распаковывается, APK передаётся системному установщику |
+| Windows | `qnd_updater-<tag>-windows.zip` | ZIP распаковывается в staging, helper `.bat` копирует файлы и перезапускает |
+| macOS | `qnd_updater-<tag>-macos.zip` | ZIP распаковывается через `ditto`, helper `.sh` копирует `Contents` и перезапускает |
+| Linux | `qnd_updater-<tag>-linux.zip` | ZIP распаковывается в staging, helper `.sh` копирует файлы и перезапускает |
 
-Дополнительно в релиз кладутся файлы для ручной установки: `.apk`, `.exe`, `.dmg`, `.AppImage`, `.deb`.
+Дополнительно в релиз кладутся установочные файлы для ручной установки: `.apk`, `-windows-setup.exe`, `.dmg`, `-linux-setup.run`, `.deb`, `.AppImage`.
 
 ## Установка
 
@@ -51,9 +51,10 @@ dependencies:
 dependencies:
   archive: ^4.3.0
   http: ^1.6.0
+  path_provider: ^2.1.5
 ```
 
-Плагин использует `archive` для распаковки ZIP на Windows/Linux/Android и `http` для запросов к GitHub. На macOS распаковка идет через системный `ditto`, чтобы сохранить симлинки внутри `.app`.
+Плагин использует `archive` для распаковки ZIP на Windows/Linux/Android, `http` для запросов к GitHub и `path_provider` для получения временной директории через `downloadLatest`. На macOS распаковка идёт через системный `ditto`, чтобы сохранить симлинки внутри `.app`.
 
 ## Настройка приложения
 
@@ -160,17 +161,22 @@ storeFile=upload-keystore.jks
 
 Приложение должно иметь право записи в свою директорию. Не устанавливайте в `C:\Program Files`, если не готовы запускать с правами администратора. Тестируйте обновление из пользовательской папки, например `C:\Users\<user>\qnd_test\`.
 
+Если используете установщик `-windows-setup.exe`, он по умолчанию ставит приложение в `C:\Program Files\qnd_updater_example`. В этом случае автообновление требует прав администратора: helper `.bat` попытается записать файлы в `Program Files`, получит `Access Denied` и обновление не применится. Есть два решения:
+
+1. Устанавливать приложение в пользовательскую директорию, например `C:\Users\<user>\AppData\Local\qnd_updater`. Изменить путь по умолчанию можно в `installer.nsi`, строка `InstallDir`.
+2. Запускать приложение от имени администратора. Это плохой UX, но для внутренних корпоративных приложений иногда приемлемо.
+
 ### macOS
 
 > **УСТАНОВКА.** Скачайте DMG, откройте, кликните **правой кнопкой** по `Установить.command` - «Открыть» - подтвердите. Всё остальное скрипт сделает сам, включая снятие карантина. Автообновление потом работает без каких-либо действий с вашей стороны.
 
 Четыре обязательных пункта для разработчика.
 
-#### 1. Разрешение на сеть и отключенная песочница
+#### 1. Разрешение на сеть и отключённая песочница
 
 macOS запускает приложения в песочнице только если она явно включена ключом `com.apple.security.app-sandbox`. Для автообновления песочница должна быть выключена, иначе приложение не сможет писать в свою же директорию в `/Applications`, и `applyUpdate` завершится ошибкой при попытке заменить бандл.
 
-В Flutter-проектах по умолчанию песочница не включена, но ее легко добавить случайно, например при копировании шаблона из другого проекта. Проверьте оба файла:
+В Flutter-проектах по умолчанию песочница не включена, но её легко добавить случайно, например при копировании шаблона из другого проекта. Проверьте оба файла:
 
 `macos/Runner/DebugProfile.entitlements`:
 
@@ -226,7 +232,7 @@ codesign -d --entitlements :- /path/to/Your.app | grep -E 'network|sandbox'
 
 Если увидите `com.apple.security.app-sandbox`, приложение в песочнице, автообновление работать не будет.
 
-Если приложение запускается из `/Applications` и пытается себя обновить, ему нужны права на запись в `/Applications`. Если папка принадлежит другому пользователю (например, создана под root), `ditto` и `mv` в helper-скрипте упадут с `Permission denied`. В этом случае пользователь должен либо дать права на `/Applications/YourApp.app` для своей учетки, либо устанавливать приложение в `~/Applications`.
+Если приложение запускается из `/Applications` и пытается себя обновить, ему нужны права на запись в `/Applications`. Если папка принадлежит другому пользователю (например, создана под root), `ditto` и `mv` в helper-скрипте упадут с `Permission denied`. В этом случае пользователь должен либо дать права на `/Applications/YourApp.app` для своей учётной записи, либо устанавливать приложение в `~/Applications`.
 
 #### 2. Pin path_provider_foundation до 2.5.1
 
@@ -248,7 +254,7 @@ dependency_overrides:
 
 #### 3. Распаковка `.app` через `ditto`
 
-Внутри `.app` macOS лежат симлинки. Например, `App.framework/App` это симлинк на `Versions/Current/App`, и таких симлинков в бандле десятки. Dart-пакет `archive` при распаковке пишет симлинки как обычные текстовые файлы, из-за чего FlutterEngine не находит `flutter_assets` и `icudtl.dat`, и приложение падает при запуске с ошибкой:
+Внутри `.app` macOS лежат симлинки. Например, `App.framework/App` - это симлинк на `Versions/Current/App`, и таких симлинков в бандле десятки. Dart-пакет `archive` при распаковке пишет симлинки как обычные текстовые файлы, из-за чего FlutterEngine не находит `flutter_assets` и `icudtl.dat`, и приложение падает при запуске с ошибкой:
 
 ```
 Failed to find path for "flutter_assets"
@@ -270,7 +276,7 @@ NSInvalidArgumentException: attempt to insert nil object from objects[0]
 
 1. Откройте скачанный DMG двойным кликом.
 2. Кликните правой кнопкой мыши (или `Control` + клик) по файлу `Установить.command` и выберите «Открыть» в контекстном меню.
-3. Появится диалог с предупреждением. Это стандартное предупреждение macOS для скриптов из интернета, оно появляется один раз. Нажмите «Открыть» еще раз.
+3. Появится диалог с предупреждением. Это стандартное предупреждение macOS для скриптов из интернета, оно появляется один раз. Нажмите «Открыть» ещё раз.
 4. Скрипт сам скопирует приложение в `/Applications`, снимет карантин через `xattr -cr` и запустит приложение.
 5. После этого приложение можно запускать двойным кликом как обычно. Все последующие автообновления проходят без участия пользователя, плагин снимает карантин с новой версии автоматически.
 
@@ -286,7 +292,7 @@ sudo xattr -cr /Applications/qnd_updater_example.app
 
 Чего это не решает:
 
-- Приложение все равно не будет нотаризовано. При первом запуске скрипта пользователь видит предупреждение macOS для `.command`-файла (одно нажатие «Открыть»).
+- Приложение всё равно не будет нотаризовано. При первом запуске скрипта пользователь видит предупреждение macOS для `.command`-файла (одно нажатие «Открыть»).
 - При скачивании новой версии DMG вручную снова одно нажатие «Открыть» по скрипту. Но автообновление через `applyUpdate` этого не требует, плагин сам снимает карантин с новой версии после установки.
 
 Полностью убрать все предупреждения можно только через Apple Developer ID (99 долларов в год) и нотаризацию.
@@ -302,13 +308,91 @@ sudo apt-get install -y \
   libglu1-mesa
 ```
 
-Для версии из GitHub Releases используйте один из форматов:
+#### Установка конечным пользователем
 
-- AppImage: скачать `qnd_updater-<tag>-linux.AppImage`, выполнить `chmod +x` и запустить
-- deb: скачать `qnd-updater-<version>-linux.deb`, установить через `sudo dpkg -i`
-- zip: распаковать в папку с правом записи и запустить бинарник
+Релиз содержит три установочных формата для разных сценариев.
 
-Автообновление работает только для portable-раскладки (zip). Если приложение установлено через `.deb` в `/usr/lib/`, у процесса не будет прав на запись, и `applyUpdate` завершится ошибкой. Для установки в системную директорию обновление нужно запускать с правами root, что плагин не делает.
+**`.run`-инсталлятор (рекомендуется для большинства).** Самый универсальный вариант. Работает на любом дистрибутиве, не требует root, спрашивает путь установки, создаёт `.desktop` для меню приложений и симлинк в `~/.local/bin`:
+
+```bash
+chmod +x qnd_updater-v0.0.2-linux-setup.run
+./qnd_updater-v0.0.2-linux-setup.run
+```
+
+По умолчанию предлагает `~/.local/share/qnd_updater`. Можно указать свой путь. После установки приложение запускается из меню приложений или командой `qnd_updater`.
+
+**`.deb` (для Debian, Ubuntu, Mint, Pop!_OS).**
+
+```bash
+sudo dpkg -i qnd-updater-0.0.2-linux.deb
+sudo apt-get install -f   # если не хватает зависимостей
+```
+
+Устанавливается в `/usr/lib/qnd_updater/`, ярлык появляется в меню.
+
+**AppImage (для любого дистрибутива без установки).**
+
+```bash
+chmod +x qnd_updater-v0.0.2-linux.AppImage
+./qnd_updater-v0.0.2-linux.AppImage
+```
+
+AppImage не интегрируется в систему автоматически, но есть инструменты вроде `appimagelauncher`, которые это делают.
+
+#### Автообновление на Linux
+
+Автообновление работает **только для portable-раскладки**. Это значит, что приложение должно быть установлено в директорию, куда у процесса есть права на запись: `~/.local/share/qnd_updater/`, `~/Applications/`, домашний каталог, любая пользовательская папка.
+
+Форматы установки и их совместимость с автообновлением:
+
+| Формат | Автообновление |
+|--------|----------------|
+| `.run`-инсталлятор | Работает, если установлено в пользовательскую директорию (по умолчанию так и есть) |
+| AppImage | Не работает. AppImage - это один файл, для обновления нужно перезаписать его целиком снаружи, плагин этого не делает |
+| `.deb` | Не работает. `/usr/lib/` принадлежит root, процесс без прав не сможет перезаписать бинарник |
+| portable ZIP | Работает. Распаковать в пользовательскую папку и запускать оттуда |
+
+Почему автообновление не работает для системных установок:
+
+1. Приложение установлено в `/usr/lib/qnd_updater/qnd_updater_example`, владелец root
+2. Helper-скрипт запускается от имени пользователя (не root)
+3. `cp` в helper падает с `Permission denied`
+4. Приложение перезапускается, но со старой версией
+
+Обходной путь для системных установок: запускать приложение с `sudo`. Это плохая практика и не рекомендуется. Если нужно обновляемое приложение, используйте `.run`-инсталлятор или portable ZIP.
+
+#### Как `.run`-инсталлятор работает внутри
+
+`.run` - это обычный shell-скрипт с встроенным `tar.gz`-архивом. Пользователь запускает его, скрипт:
+
+1. Спрашивает путь установки (по умолчанию `~/.local/share/qnd_updater`)
+2. Проверяет, существует ли директория, предлагает перезаписать
+3. Распаковывает payload (`tail -n +<line> "$0" | tar -xz -C "$INSTALL_DIR"`)
+4. Делает бинарник исполняемым
+5. Создаёт `~/.local/share/applications/qnd-updater.desktop` с `Exec` на полный путь
+6. Создаёт симлинк `~/.local/bin/qnd_updater` на бинарник
+7. Выводит инструкцию
+
+Разделитель payload: строка `__PAYLOAD_BELOW__` в конце скрипта. Собирается это всё в CI одной командой:
+
+```bash
+cat installer_header.sh payload.tar.gz > qnd_updater-v0.0.2-linux-setup.run
+chmod +x qnd_updater-v0.0.2-linux-setup.run
+```
+
+Проверить содержимое `.run` без запуска:
+
+```bash
+# размер встроенного payload
+ls -la qnd_updater-v0.0.2-linux-setup.run
+
+# первые строки - header
+head -50 qnd_updater-v0.0.2-linux-setup.run
+
+# извлечь payload отдельно
+PAYLOAD_LINE=$(awk '/^__PAYLOAD_BELOW__$/{print NR + 1; exit 0;}' qnd_updater-v0.0.2-linux-setup.run)
+tail -n +$PAYLOAD_LINE qnd_updater-v0.0.2-linux-setup.run | tar -tzf -
+```
 
 ## Структура релиза на GitHub
 
@@ -337,15 +421,29 @@ qnd_updater-v0.0.2-linux.zip
 - macOS: `Runner.app/Contents/...`
 - Linux: содержимое `bundle` в корне архива (бинарник, `lib/`, `data/`)
 
-Для ручной установки дополнительно кладутся:
+### Установочные файлы для конечного пользователя
 
-- `qnd_updater-<tag>.apk`
-- `qnd_updater-<tag>-windows.exe`
-- `qnd_updater-<tag>-macos.dmg`
-- `qnd_updater-<tag>-linux.AppImage`
-- `qnd-updater-<version>-linux.deb`
+Помимо ZIP для автообновления, релиз **обязан** содержать установочные файлы для каждой платформы. Без них пользователь не сможет установить приложение в первый раз. ZIP-архивы для автообновления не годятся для первой установки: на macOS внутри архива лежит `.app`, который нельзя просто перетащить в `/Applications` без снятия карантина, на Windows нет ярлыков в меню Пуск, на Linux нет `.desktop` файла для интеграции в меню приложений.
 
-Плагин не использует файлы для ручной установки, они только для пользователей.
+Обязательный набор ассетов в релизе:
+
+| Платформа | Установщик | Описание |
+|-----------|------------|----------|
+| Android | `qnd_updater-<tag>.apk` | Standalone APK, ставится через `adb install` или кликом на устройстве |
+| Windows | `qnd_updater-<tag>-windows-setup.exe` | NSIS-инсталлятор с визардом, ярлыками, записью в «Установка и удаление программ» |
+| macOS | `qnd_updater-<tag>-macos.dmg` | DMG с скриптом `Установить.command`, который копирует `.app` и снимает карантин |
+| Linux | `qnd_updater-<tag>-linux-setup.run` | Самораспаковывающийся `.run`-скрипт, спрашивает путь, создаёт `.desktop` и симлинк в `~/.local/bin` |
+| Linux | `qnd-updater-<version>-linux.deb` | DEB-пакет для Debian/Ubuntu |
+| Linux | `qnd_updater-<tag>-linux.AppImage` | Portable AppImage для любого дистрибутива |
+
+Вторая группа опциональна и нужна только для удобства:
+
+- `qnd_updater-<tag>-windows.zip` - portable Windows
+- `qnd_updater-<tag>-windows.exe` - одиночный EXE
+- `qnd_updater-<tag>-linux.zip` - для автообновления
+- `qnd_updater-<tag>-macos.zip` - для автообновления
+
+Плагин использует только ZIP-архивы для автообновления. Все остальные файлы для пользователей, которые ставят приложение вручную.
 
 ## Использование
 
@@ -428,9 +526,9 @@ Future<void> downloadAndApply() async {
 Дальнейшее поведение зависит от платформы:
 
 - Android: открывается системный установщик, пользователь подтверждает установку
-- Windows: текущий процесс завершается, helper .bat ждет выхода, копирует файлы, перезапускает приложение
-- macOS: helper .sh ждет выхода процесса, копирует `Contents` бандла, снимает карантин, перезапускает
-- Linux: helper .sh через `fork` и `setsid` ждет выхода процесса, копирует файлы, перезапускает
+- Windows: текущий процесс завершается, helper `.bat` ждёт выхода, копирует файлы, перезапускает приложение
+- macOS: helper `.sh` ждёт выхода процесса, копирует `Contents` бандла, снимает карантин, перезапускает
+- Linux: helper `.sh` через subshell ждёт выхода процесса, копирует файлы, перезапускает
 
 На десктопе после `applyUpdate` обязательно вызовите `exit(0)`, иначе helper будет ждать вечно.
 
@@ -462,7 +560,7 @@ Future<void> downloadAndApply() async {
 |-------|----------|
 | `fetchLatestRelease()` | Возвращает информацию о последнем опубликованном релизе |
 | `downloadUpdate({platformKey, stagingDir, onProgress})` | Скачивает ZIP для указанной платформы и распаковывает в staging директорию |
-| `downloadLatest({platformKey, onProgress})` | Обертка над `downloadUpdate` с автоматическим выбором staging в `getTemporaryDirectory()` |
+| `downloadLatest({platformKey, onProgress})` | Обёртка над `downloadUpdate` с автоматическим выбором staging в `getTemporaryDirectory()` |
 
 `platformKey` принимает значения `android`, `windows`, `macos`, `linux`.
 
@@ -504,13 +602,13 @@ Future<void> downloadAndApply() async {
 
 Поведение зависит от платформы.
 
-Android. Плагин ищет `.apk` в staging директории, получает URI через `FileProvider`, открывает системный установщик через `Intent.ACTION_VIEW`.
+**Android.** Плагин ищет `.apk` в staging директории, получает URI через `FileProvider`, открывает системный установщик через `Intent.ACTION_VIEW`.
 
-Windows. Плагин создает helper `.bat` в `%TEMP%`. Helper ждет, пока процесс завершится (через `tasklist`), копирует файлы из staging в директорию приложения через `xcopy`, запускает приложение заново, удаляет себя.
+**Windows.** Плагин создаёт helper `.bat` в `%TEMP%`. Helper ждёт, пока процесс завершится (через `tasklist`), копирует файлы из staging в директорию приложения через `xcopy`, запускает приложение заново, удаляет себя.
 
-macOS. Плагин создает helper `.sh`. Helper ждет выхода процесса (через `kill -0`), копирует содержимое `Contents/` из staging `.app` в текущий бандл через `ditto`, снимает карантин, перезапускает приложение.
+**macOS.** Плагин создаёт helper `.sh`. Helper ждёт выхода процесса (через `kill -0`), копирует содержимое `Contents/` из staging `.app` в текущий бандл через `ditto`, снимает карантин, перезапускает приложение.
 
-Linux. Плагин создает helper `.sh`, запускает его через `fork` и `setsid`, чтобы он жил после выхода процесса. Helper ждет выхода (через `kill -0`), копирует файлы из staging в директорию приложения, запускает бинарник через `nohup`, удаляет себя.
+**Linux.** Плагин создаёт helper `.sh`, запускает его через `fork` и `setsid`, чтобы он жил после выхода процесса. Helper ждёт выхода (через `kill -0`), копирует файлы из staging в директорию приложения, запускает бинарник через subshell `( nohup "$EXE" & )`, удаляет себя. Subshell используется вместо `setsid`, потому что `setsid` отвязывает процесс от Wayland-сессии, и приложение не может подключиться к композитору.
 
 ## Настройка CI для автообновления
 
@@ -532,7 +630,7 @@ permissions:
 
 `permissions.contents: write` обязателен, иначе `softprops/action-gh-release` не сможет создать релиз.
 
-Тег должен указывать на тот же коммит, что и ветка `main`. Если сделать тег от старого коммита, CI соберет старую версию. Проверить:
+Тег должен указывать на тот же коммит, что и ветка `main`. Если сделать тег от старого коммита, CI соберёт старую версию. Проверить:
 
 ```bash
 git log --oneline -1 v0.0.2
@@ -549,113 +647,41 @@ version: 0.0.3+3
 
 Плагин читает версию через `getAppVersion` из `Info.plist` на macOS, из `build.gradle` на Android, из ресурсов на Windows и Linux. Все версии должны совпадать, иначе проверка обновления будет некорректной.
 
-### Универсальный бинарник macOS
+### Обязательные требования к workflow
 
-macOS собирается в два прогона, чтобы получить universal бинарник для Intel и Apple Silicon:
+Любой workflow, который публикует релиз для `qnd_updater`, должен выполнять три вещи.
 
-```yaml
-- name: Build arm64
-  working-directory: example
-  env:
-    FLUTTER_XCODE_ARCHS: arm64
-  run: |
-    flutter pub get
-    flutter build macos --release
+#### 1. Собирать ZIP-архивы для автообновления
 
-- name: Save arm64 app
-  run: |
-    mkdir -p /tmp/arm
-    cp -R example/build/macos/Build/Products/Release/*.app /tmp/arm/Runner.app
+Плагин ищет ассеты по фиксированному шаблону `qnd_updater-<tag>-<platform>.zip`. Если этого ассета нет, `checkForUpdate` вернёт «доступно обновление», но `downloadUpdate` не найдёт файл и вернёт `null`.
 
-- name: Clean for x86_64 build
-  working-directory: example
-  run: |
-    flutter clean
-    flutter pub get
+Обязательные шаги:
 
-- name: Build x86_64
-  working-directory: example
-  env:
-    FLUTTER_XCODE_ARCHS: x86_64
-    FLUTTER_XCODE_ONLY_ACTIVE_ARCH: "NO"
-  run: flutter build macos --release
-```
+- Android: `flutter build apk --release`, упаковать APK в `qnd_updater-<tag>-android.zip`
+- Windows: `flutter build windows --release`, упаковать `Release/*` в `qnd_updater-<tag>-windows.zip` через `Compress-Archive`
+- macOS: собрать universal через `lipo`, подписать ad-hoc, упаковать через `ditto -c -k --rsrc --extattr`, чтобы сохранить симлинки
+- Linux: `flutter build linux --release`, упаковать bundle в `qnd_updater-<tag>-linux.zip`
 
-Затем `lipo -create` сливает бинарники всех фреймворков:
+#### 2. Собирать установочные файлы
 
-```bash
-for fw in "$U/Contents/Frameworks/"*.framework; do
-  name=$(basename "$fw" .framework)
-  bin="$fw/Versions/A/$name"
-  [ -f "$bin" ] || bin="$fw/$name"
-  a="/tmp/arm/Runner.app/Contents/Frameworks/$name.framework/Versions/A/$name"
-  i="/tmp/intel/Runner.app/Contents/Frameworks/$name.framework/Versions/A/$name"
-  if [ -f "$a" ] && [ -f "$i" ]; then
-    lipo -create "$a" "$i" -output "$bin"
-  fi
-done
-```
+Без инсталляторов пользователь не сможет поставить приложение в первый раз.
 
-Пропустить этот шаг можно, если публикуете только для одной архитектуры, но тогда пользователи на другой не смогут запустить приложение.
+**Windows - NSIS.** `choco install nsis -y`, затем `makensis installer.nsi`. NSIS не входит в образ `windows-2025-vs2026`, его нужно ставить явно. В скрипте ищем `makensis.exe` в `PATH`, `C:\Program Files (x86)\NSIS`, `C:\Program Files\NSIS`, `C:\ProgramData\chocolatey\bin`. Перед вызовом добавляем путь в `$env:GITHUB_PATH`, чтобы следующие шаги видели утилиту. При вызове `makensis` используем `MSYS_NO_PATHCONV=1` и `-DREF_NAME=` вместо `/DREF_NAME=`, иначе Git Bash превращает аргументы в пути Windows.
 
-### Ad-hoc подпись
+**macOS - DMG с установочным скриптом.** Приложение прячется в `.payload` (невидимая папка), рядом кладётся `Установить.command` и `ПРОЧТИ_МЕНЯ.txt`. Скрипт копирует `.app` в `/Applications` через `ditto`, снимает карантин через `xattr -cr`, запускает приложение.
 
-Без Apple Developer ID используйте ad-hoc подпись. Это не убирает предупреждение Gatekeeper, но позволяет приложению запускаться на Apple Silicon, где macOS требует хотя бы минимальной подписи.
+**Linux - `.run`-инсталлятор.** Самораспаковывающийся shell-скрипт с встроенным `tar.gz`. Собирается командой `cat installer_header.sh payload.tar.gz > installer.run`.
 
-```yaml
-- name: Sign app with release entitlements
-  run: |
-    codesign --force --deep --sign - \
-      --entitlements /tmp/release.entitlements \
-      /tmp/universal/Runner.app
-```
+#### 3. Публиковать релиз без `draft: true`
 
-Перед подписью удалите старые `_CodeSignature`:
-
-```bash
-find /tmp/universal/Runner.app -type d -name "_CodeSignature" -prune -exec rm -rf {} + 2>/dev/null || true
-```
-
-### Упаковка ZIP с сохранением симлинков
-
-Для macOS ZIP собирается через `ditto`, а не через `zip`. Обычный `zip` превращает симлинки в обычные файлы, и приложение падает с `Failed to find path for "flutter_assets"`.
-
-```yaml
-- name: Package zip with ditto (preserves xattrs)
-  run: |
-    mkdir -p dist
-    cd /tmp/universal
-    ditto -c -k --rsrc --extattr --keepParent Runner.app \
-      "$GITHUB_WORKSPACE/dist/qnd_updater-${{ github.ref_name }}-macos.zip"
-```
-
-Если используете `zip`, обязателен флаг `-y` для сохранения симлинков:
-
-```bash
-zip -qry archive.zip Runner.app
-```
-
-Но `ditto` надежнее для `.app`.
-
-### DMG с установочным скриптом
-
-Шаг сборки DMG описан в разделе macOS. Ключевое отличие от стандартного DMG: приложение уезжает в скрытую папку `.payload`, а рядом кладется исполняемый скрипт `Установить.command`, который копирует приложение в `/Applications` и снимает карантин.
-
-Скрыть `.payload` можно двумя способами. Первый: точка в начале имени, это работает всегда. Второй: дополнительный флаг `SetFile -a V`, который ставит атрибут invisible поверх:
-
-```bash
-SetFile -a V /tmp/dmg/.payload || true
-```
-
-`SetFile` входит в Xcode Command Line Tools, на macOS-раннерах GitHub Actions он доступен. `|| true` защищает от падения, если утилита недоступна.
-
-### Публикация релиза
+Плагин использует `GET /repos/{owner}/{repo}/releases/latest`, который **не возвращает черновики**. Если оставить `draft: true`, пользователи увидят `404 Not Found` и обновление не сработает.
 
 ```yaml
 - uses: softprops/action-gh-release@v2
   with:
     tag_name: ${{ github.ref_name }}
     generate_release_notes: true
+    # draft: true   <-- НЕ используйте
     files: |
       dist/*.zip
       dist/*.apk
@@ -663,192 +689,60 @@ SetFile -a V /tmp/dmg/.payload || true
       dist/*.dmg
       dist/*.deb
       dist/*.AppImage
+      dist/*.run
 ```
 
-Не используйте `draft: true`. Плагин обращается к `/releases/latest`, а этот эндпоинт не возвращает черновики. Если оставить `draft: true`, плагин получит 404 и не увидит обновление.
+### Проверка обязательных ассетов перед публикацией
 
-### Проверка перед публикацией
-
-Полезно добавить шаг, который монтирует готовый DMG и убеждается, что структура правильная, до публикации релиза:
+Добавьте в job `release` шаг перед публикацией:
 
 ```yaml
-- name: Verify dmg contents
-  run: |
-    set -e
-    rm -rf /tmp/verify_dmg
-    mkdir -p /tmp/verify_dmg
-    hdiutil attach \
-      "$GITHUB_WORKSPACE/dist/qnd_updater-${{ github.ref_name }}-macos.dmg" \
-      -mountpoint /tmp/verify_dmg -nobrowse
-    ls -la /tmp/verify_dmg
-    ls -la /tmp/verify_dmg/.payload
-    codesign --verify --verbose=2 \
-      "/tmp/verify_dmg/.payload/qnd_updater_example.app"
-    hdiutil detach /tmp/verify_dmg
+      - name: Check required assets
+        run: |
+          set -e
+          REQUIRED=(
+            "*.apk"
+            "*-windows-setup.exe"
+            "*-windows.zip"
+            "*-macos.dmg"
+            "*-macos.zip"
+            "*-linux-setup.run"
+            "*-linux.zip"
+            "*-linux.deb"
+          )
+          MISSING=0
+          for pattern in "${REQUIRED[@]}"; do
+            if ! ls dist/$pattern >/dev/null 2>&1; then
+              echo "::error::missing required asset: $pattern"
+              MISSING=1
+            fi
+          done
+          if [ "$MISSING" = "1" ]; then
+            exit 1
+          fi
+          echo "all required assets present"
 ```
 
-Это ловит регрессии в CI, например случайную замену `ditto` на `zip` или потерю прав.
+Если хотя бы одного установщика нет, job упадёт и релиз не опубликуется. Это защищает от ситуации, когда CI собрал все платформы, но забыл, например, DMG, и релиз ушёл без установщика macOS.
 
-## Как писать приложение с автообновлением
+### Ключевые моменты workflow
 
-Этот раздел для разработчиков, которые используют `qnd_updater` в своих проектах. Он не про сам плагин, а про то, как построить приложение так, чтобы автообновление работало надежно.
-
-### Именование ассетов
-
-Плагин ищет ассет по фиксированному шаблону: `qnd_updater-<tag>-<platform>.zip`, где `<platform>` это `android`, `windows`, `macos` или `linux`. Если ваше приложение называется иначе, задайте другой шаблон в `_assetNameFor` в `lib/src/updater_service.dart`:
-
-```dart
-String _assetNameFor(String platformKey, String tag) {
-  final cleanTag = tag.startsWith('v') ? tag : 'v$tag';
-  return 'myapp-$cleanTag-$platformKey.zip';
-}
-```
-
-Или передайте префикс через конструктор `UpdaterService`, если добавите такое поле. Главное, чтобы имя ассета в релизе совпадало с тем, что ожидает плагин. Проверить можно так:
-
-```bash
-curl -s https://api.github.com/repos/your-org/your-repo/releases/latest \
-  | grep '"name"'
-```
-
-### Публикация релиза
-
-Релиз должен быть опубликован, не draft. Тег должен указывать на тот коммит, из которого собраны артефакты. Если тег и билд расходятся, пользователь получит обновление на версию, которая не соответствует исходникам.
-
-Минимальный чек-лист перед созданием тега:
-
-1. Обновите `version` в `pubspec.yaml` приложения и плагина
-2. Обновите `CFBundleShortVersionString` и `CFBundleVersion` в `macos/Runner/Info.plist`
-3. Обновите `versionCode` и `versionName` в `android/app/build.gradle.kts`
-4. Обновите `kDemoBuildTag` в тестовом экране, если он есть
-5. Убедитесь, что `flutter analyze` проходит без ошибок
-6. Запушьте коммит в `main`, создайте тег, запушьте тег
-7. Дождитесь, пока CI соберет все платформы и опубликует релиз
-8. Проверьте страницу релиза, все ассеты на месте
-
-### Проверка обновления в приложении
-
-Не вызывайте `checkForUpdate` при каждом старте приложения. GitHub API имеет лимит 60 запросов в час без токена. Если у пользователя несколько устройств или он часто перезапускает приложение, лимит быстро закончится, и проверка начнет падать с ошибкой 403.
-
-Разумные варианты:
-
-- Проверять раз в сутки при запуске, сохраняя дату последней проверки в `SharedPreferences`
-- Проверять по кнопке в UI
-- Проверять при старте, но оборачивать в try/catch и игнорировать ошибки сети
-
-Пример с сохранением даты последней проверки:
-
-```dart
-Future<void> checkUpdateIfNeeded() async {
-  final prefs = await SharedPreferences.getInstance();
-  final lastCheck = prefs.getInt('last_update_check') ?? 0;
-  final now = DateTime.now().millisecondsSinceEpoch;
-  const dayMs = 24 * 60 * 60 * 1000;
-
-  if (now - lastCheck < dayMs) {
-    return;
-  }
-
-  try {
-    final status = await QndUpdater().checkForUpdate(
-      githubToken: '',
-      owner: 'your-org',
-      repo: 'your-repo',
-    );
-    if (status == UpdateStatus.updateAvailable) {
-      // показать баннер или диалог
-    }
-    await prefs.setInt('last_update_check', now);
-  } catch (e) {
-    debugPrint('Ошибка проверки обновления: $e');
-  }
-}
-```
-
-### Сценарий обновления с точки зрения пользователя
-
-Правильный UX автообновления:
-
-1. Пользователь запускает приложение, в фоне идет проверка версии
-2. Если обновление есть, показывается ненавязчивый баннер «Доступна версия X.Y.Z» с кнопкой «Обновить»
-3. Пользователь нажимает кнопку, показывается прогресс загрузки
-4. После загрузки приложение предупреждает «Приложение будет перезапущено» и через 2 секунды завершается
-5. Helper-скрипт заменяет бандл и запускает приложение заново
-6. После перезапуска пользователь видит новую версию
-
-Не запускайте `applyUpdate` автоматически без согласия пользователя. Это плохой UX: пользователь может быть посреди работы, а приложение внезапно закроется.
-
-### Обязательный exit(0)
-
-После `applyUpdate` на десктопе обязательно вызовите `exit(0)`. Без этого helper-скрипт будет ждать завершения процесса вечно, потому что Flutter не всегда закрывает нативные ресурсы сразу после `Navigator.pop` или `SystemNavigator.pop`. `exit(0)` гарантированно завершает процесс.
-
-На Android `exit(0)` не нужен. Системный установщик сам откроется, а пользователь подтвердит установку. После подтверждения текущий процесс будет убит системой.
-
-### Обработка ошибок сети
-
-`checkForUpdate` возвращает `UpdateStatus.error` при любой сетевой проблеме. Не показывайте это пользователю как ошибку. Логируйте через `debugPrint` и продолжайте работу приложения. Пользователь сам решит, когда проверить обновление снова.
-
-Типичные причины `error`:
-
-- Нет интернета
-- Лимит GitHub API исчерпан (60 в час без токена)
-- Репозиторий приватный, а токен не передан
-- Релиз в статусе draft
-- Тег в релизе не совпадает с ожидаемым шаблоном
-
-Если ошибка повторяется стабильно, проверьте:
-
-```bash
-curl -i https://api.github.com/repos/your-org/your-repo/releases/latest
-```
-
-### Тестирование автообновления
-
-Тестировать автообновление нужно на всех платформах, потому что поведение отличается. Схема такая:
-
-1. Соберите версию 0.0.1 с `kDemoBuildTag = 'build-001'`, установите на устройство или в виртуальную машину
-2. Поменяйте `kDemoBuildTag` на `build-002`, обновите версию в `pubspec.yaml`, создайте тег `v0.0.2`, запушьте
-3. Дождитесь релиза в CI
-4. В приложении нажмите «Check for update», затем «Download and apply»
-5. Проверьте, что приложение перезапустилось и баннер показывает `build-002`
-
-Особенно тщательно тестируйте macOS, потому что там больше всего подводных камней: симлинки, карантин, entitlements, универсальный бинарник.
-
-## GitHub Actions
-
-Полный workflow лежит в репозитории. Здесь только скелет для ориентира.
-
-```yaml
-name: Release
-
-on:
-  push:
-    tags: ['v*']
-
-permissions:
-  contents: write
-
-env:
-  FLUTTER_VERSION: '3.47.5'
-```
-
-### Важные моменты
-
-- Universal macOS собирается через два прогона `flutter build macos` с разными `FLUTTER_XCODE_ARCHS` (arm64 и x86_64), затем `lipo` сливает бинарники
+- Universal macOS собирается через два прогона `flutter build macos` с разными `FLUTTER_XCODE_ARCHS` (arm64 и x86_64), затем `lipo` сливает бинарники всех фреймворков
 - На macOS в CI не забудьте `flutter config --enable-native-assets` из-за `objective_c`
-- Тег должен указывать на тот же коммит, что и ветка. Иначе CI соберет старую версию
+- Тег должен указывать на тот же коммит, что и ветка. Иначе CI соберёт старую версию
 - Не используйте `draft: true` в `action-gh-release`, иначе плагин не увидит релиз через `/releases/latest`
 - `ditto -c -k --rsrc --extattr` сохраняет xattr и симлинки при упаковке ZIP для macOS, обычный `zip` их ломает
+- Для Windows NSIS вызывается с `MSYS_NO_PATHCONV=1` и `-DREF_NAME=`, иначе Git Bash превращает `/DREF_NAME=v0.0.1` в путь Windows
 
 ## Ограничения
 
-Android. Тихая установка без диалога невозможна. Система требует подтверждения пользователя. Публикация в Google Play не позволяет обновлять APK через сторонние источники, ограничение действует на уровне политики магазина.
+**Android.** Тихая установка без диалога невозможна. Система требует подтверждения пользователя. Публикация в Google Play не позволяет обновлять APK через сторонние источники, ограничение действует на уровне политики магазина.
 
-macOS. Песочница (app sandbox) должна быть выключена, иначе приложение не сможет заменить свой же бандл при автообновлении. Приложение должно быть собрано с entitlements `com.apple.security.network.client`, без него сеть недоступна. DMG содержит установочный скрипт `Установить.command`, который копирует приложение и снимает карантин. Все последующие автообновления проходят без участия пользователя, потому что `applyUpdate` снимает карантин с новой версии автоматически. Полностью убрать предупреждение Gatekeeper можно только через Apple Developer ID и нотаризацию.
+**macOS.** Песочница (app sandbox) должна быть выключена, иначе приложение не сможет заменить свой же бандл при автообновлении. Приложение должно быть собрано с entitlements `com.apple.security.network.client`, без него сеть недоступна. DMG содержит установочный скрипт `Установить.command`, который копирует приложение и снимает карантин. Все последующие автообновления проходят без участия пользователя, потому что `applyUpdate` снимает карантин с новой версии автоматически. Полностью убрать предупреждение Gatekeeper можно только через Apple Developer ID и нотаризацию.
 
-Windows. Приложение должно иметь право записи в свою директорию. Не устанавливайте в `C:\Program Files`, если не готовы запускать с правами администратора.
+**Windows.** Приложение должно иметь право записи в свою директорию. Не устанавливайте в `C:\Program Files`, если не готовы запускать с правами администратора.
 
-Linux. Обновление работает только для portable-раскладки. Если приложение установлено через `.deb` в `/usr/lib`, у процесса нет прав на запись. AppImage обновлять тоже нетривиально, нужен отдельный подход.
+**Linux.** Обновление работает только для portable-раскладки. Если приложение установлено через `.deb` в `/usr/lib`, у процесса нет прав на запись. AppImage обновлять тоже нетривиально, нужен отдельный подход.
 
 ## Диагностика
 
@@ -900,7 +794,7 @@ sudo chmod +x /Applications/YourApp.app/Contents/MacOS/YourApp
 sudo xattr -cr /Applications/YourApp.app
 ```
 
-Если повторяется при каждом обновлении, распаковка снова идет через `ZipDecoder`, а не через `ditto`.
+Если повторяется при каждом обновлении, распаковка снова идёт через `ZipDecoder`, а не через `ditto`.
 
 ### macOS: приложение повреждено после установки из DMG
 
@@ -909,6 +803,38 @@ Gatekeeper. Откройте DMG и запустите `Установить.com
 ```bash
 sudo xattr -cr /Applications/YourApp.app
 ```
+
+### Linux: приложение закрылось и не открылось после обновления
+
+Проверьте лог helper-скрипта:
+
+```bash
+ls -t /tmp/qnd_updater_apply_*.log | head -1
+cat $(ls -t /tmp/qnd_updater_apply_*.log | head -1)
+```
+
+Ищите:
+
+- `staging version:` и `install version:` - должны совпадать. Если расходятся, копирование не сработало
+- `new pid: N` - процесс запущен
+- `helper done` - скрипт завершился без ошибок
+
+Если в логе `new pid` есть, а процесса нет - приложение упало при запуске. Проверьте:
+
+```bash
+ps aux | grep qnd_updater_example | grep -v grep
+journalctl --user -n 50 | grep -i qnd_updater
+```
+
+Если версия в файле `~/qnd_test/version` старая, значит `cp` не сработал. Проверьте права на директорию:
+
+```bash
+ls -la ~/qnd_test/
+```
+
+### Linux: приложение установлено в /usr/lib, автообновление не работает
+
+`/usr/lib/` принадлежит root. Helper-скрипт запускается от имени пользователя и не может перезаписать файлы. Используйте `.run`-инсталлятор или portable ZIP, которые ставят приложение в пользовательскую директорию.
 
 ### APK not found на Android
 
@@ -923,6 +849,18 @@ sudo xattr -cr /Applications/YourApp.app
 ### type '_Uint8ArrayView' is not a subtype of type 'Stream<List<int>>'
 
 Старый код распаковки. Обновите `UpdaterService.downloadUpdate`, используется `writeAsBytes(file.content as List<int>)` вместо каста к Stream.
+
+### Windows: makensis not found
+
+NSIS не входит в образ `windows-2025-vs2026`. Добавьте шаг `choco install nsis -y --no-progress` и добавьте путь в `$env:GITHUB_PATH`. Готовый пример в `.github/workflows/Release.yml`.
+
+### Windows: Can't open script "C:/Program Files/Git/DREF_NAME=..."
+
+Git Bash на Windows превращает аргументы, начинающиеся с `/`, в пути. Передавайте переменные NSIS через `-D` вместо `/D` и выставляйте `MSYS_NO_PATHCONV=1`:
+
+```bash
+MSYS_NO_PATHCONV=1 makensis -V2 -DREF_NAME="$TAG" -DVERSION="$VERSION" installer.nsi
+```
 
 ## Пример приложения
 
