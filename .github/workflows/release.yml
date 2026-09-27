@@ -228,7 +228,10 @@ jobs:
           fi
 
           echo "using makensis: $MAKENSIS"
-          "$MAKENSIS" -V2 /DREF_NAME="${{ github.ref_name }}" /DVERSION="$VERSION" installer.nsi
+          MSYS_NO_PATHCONV=1 "$MAKENSIS" -V2 \
+            -DREF_NAME="${{ github.ref_name }}" \
+            -DVERSION="$VERSION" \
+            installer.nsi
 
           ls -la dist/
 
