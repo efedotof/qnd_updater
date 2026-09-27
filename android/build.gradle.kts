@@ -1,4 +1,4 @@
-group = "com.example.qnd_updater"
+﻿group = "com.efedotof.qnd_updater"
 version = "1.0-SNAPSHOT"
 
 buildscript {
@@ -26,7 +26,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.qnd_updater"
+    namespace = "com.efedotof.qnd_updater"
 
     compileSdk = 36
 

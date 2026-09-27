@@ -1,4 +1,4 @@
-package com.example.qnd_updater
+﻿package com.efedotof.qnd_updater
 
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel

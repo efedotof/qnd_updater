@@ -1,4 +1,4 @@
-import java.util.Properties
+﻿import java.util.Properties
 import java.io.FileInputStream
 
 plugins {
@@ -14,7 +14,7 @@ if (keystorePropertiesExists) {
 }
 
 android {
-    namespace = "com.example.qnd_updater_example"
+    namespace = "com.efedotof.qnd_updater_example"
     compileSdk = maxOf(flutter.compileSdkVersion ?: 0, 37)
     ndkVersion = flutter.ndkVersion
 
@@ -24,7 +24,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.qnd_updater_example"
+        applicationId = "com.efedotof.qnd_updater_example"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -36,7 +36,7 @@ android {
             if (keystorePropertiesExists) {
                 keyAlias = keystoreProperties["keyAlias"] as String?
                 keyPassword = keystoreProperties["keyPassword"] as String?
-                // rootProject = example/android/, поэтому storeFile=upload-keystore.jks
+                // rootProject = example/android/, РїРѕСЌС‚РѕРјСѓ storeFile=upload-keystore.jks
                 storeFile = keystoreProperties["storeFile"]?.let {
                     rootProject.file(it as String)
                 }

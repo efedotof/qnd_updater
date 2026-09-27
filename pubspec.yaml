@@ -1,4 +1,4 @@
-name: qnd_updater
+﻿name: qnd_updater
 description: "Flutter plugin for incremental app updates via GitHub Releases."
 version: 0.0.1
 homepage:
@@ -26,7 +26,7 @@ flutter:
   plugin:
     platforms:
       android:
-        package: com.example.qnd_updater
+        package: com.efedotof.qnd_updater
         pluginClass: QndUpdaterPlugin
       macos:
         pluginClass: QndUpdaterPlugin
