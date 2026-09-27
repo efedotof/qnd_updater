@@ -120,9 +120,22 @@ jobs:
         shell: pwsh
         run: |
           choco install nsis -y --no-progress
-          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-          where.exe makensis
-          makensis /VERSION
+
+          $nsisDir = "C:\Program Files (x86)\NSIS"
+          if (-not (Test-Path "$nsisDir\makensis.exe")) {
+            Write-Host "NSIS not found at $nsisDir, searching..."
+            $found = Get-ChildItem -Path "C:\" -Filter "makensis.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $found) {
+              Write-Error "makensis.exe not found anywhere"
+              exit 1
+            }
+            $nsisDir = $found.DirectoryName
+          }
+
+          Write-Host "Using NSIS dir: $nsisDir"
+          Add-Content -Path $env:GITHUB_PATH -Value $nsisDir
+
+          & "$nsisDir\makensis.exe" /VERSION
 
       - name: Build NSIS installer
         shell: bash
