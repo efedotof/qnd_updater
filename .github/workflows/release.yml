@@ -116,6 +116,14 @@ jobs:
             -Force
           Get-ChildItem dist/
 
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+          where.exe makensis
+          makensis /VERSION
+
       - name: Build NSIS installer
         shell: bash
         run: |
@@ -187,10 +195,25 @@ jobs:
           SectionEnd
           NSIEOF
 
-          MAKENSIS=$(command -v makensis || true)
-          if [ -z "$MAKENSIS" ]; then
+          # Ищем makensis в нескольких местах
+          MAKENSIS=""
+          if command -v makensis >/dev/null 2>&1; then
+            MAKENSIS=$(command -v makensis)
+          elif [ -f "/c/Program Files (x86)/NSIS/makensis.exe" ]; then
             MAKENSIS="/c/Program Files (x86)/NSIS/makensis.exe"
+          elif [ -f "/c/Program Files/NSIS/makensis.exe" ]; then
+            MAKENSIS="/c/Program Files/NSIS/makensis.exe"
+          elif [ -f "/c/ProgramData/chocolatey/bin/makensis.exe" ]; then
+            MAKENSIS="/c/ProgramData/chocolatey/bin/makensis.exe"
           fi
+
+          if [ -z "$MAKENSIS" ]; then
+            echo "=== makensis not found, searching ==="
+            find /c/ProgramData/chocolatey -name "makensis.exe" 2>/dev/null || true
+            find "/c/Program Files" -name "makensis.exe" 2>/dev/null || true
+            exit 1
+          fi
+
           echo "using makensis: $MAKENSIS"
           "$MAKENSIS" -V2 /DREF_NAME="${{ github.ref_name }}" /DVERSION="$VERSION" installer.nsi
 
