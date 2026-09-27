@@ -1,4 +1,4 @@
-﻿package com.efedotof.qnd_updater
+package com.efedotof.qnd_updater
 
 import android.content.Context
 import android.content.Intent

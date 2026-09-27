@@ -1,4 +1,4 @@
-﻿group = "com.efedotof.qnd_updater"
+group = "com.efedotof.qnd_updater"
 version = "1.0-SNAPSHOT"
 
 buildscript {
